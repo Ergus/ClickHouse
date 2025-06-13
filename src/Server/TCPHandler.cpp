@@ -81,6 +81,8 @@
 #include <fmt/ostream.h>
 #include <Common/StringUtils.h>
 
+#include <Profiler.hpp>
+
 using namespace std::literals;
 using namespace DB;
 
@@ -318,6 +320,8 @@ TCPHandler::~TCPHandler() = default;
 
 void TCPHandler::runImpl()
 {
+    INSTRUMENT_FUNCTION()
+
     setThreadName("TCPHandler");
 
     extractConnectionSettingsFromContext(server.context());
@@ -505,6 +509,8 @@ void TCPHandler::runImpl()
 
             chassert(query_state.has_value());
 
+            INSTRUMENT_FUNCTION_UPDATE(2, "Loop_query_received")
+
             /// Set up tracing context for this query on current thread
             thread_trace_context = std::make_unique<OpenTelemetry::TracingContextHolder>("TCPHandler",
                 query_state->query_context->getClientInfo().client_trace_context,
@@ -683,6 +689,7 @@ void TCPHandler::runImpl()
                 return res;
             });
 
+            INSTRUMENT_FUNCTION_UPDATE(3, "Loop_executeQuery")
             /// Processing Query
             std::tie(query_state->parsed_query, query_state->io) = executeQuery(query_state->query, query_state->query_context, QueryFlags{}, query_state->stage);
 
@@ -691,6 +698,7 @@ void TCPHandler::runImpl()
 
             if (query_state->io.pipeline.pushing())
             {
+                INSTRUMENT_FUNCTION_UPDATE(3, "Loop_io.pipeline.pushing")
                 /// FIXME: check explicitly that insert query suggests to receive data via native protocol,
                 query_state->need_receive_data_for_insert = true;
                 processInsertQuery(query_state.value());
@@ -698,11 +706,13 @@ void TCPHandler::runImpl()
             }
             else if (query_state->io.pipeline.pulling())
             {
+                INSTRUMENT_FUNCTION_UPDATE(4, "Loop_io.pipeline.pulling")
                 processOrdinaryQuery(query_state.value());
                 query_state->io.onFinish();
             }
             else if (query_state->io.pipeline.completed())
             {
+                INSTRUMENT_FUNCTION_UPDATE(5, "Loop_io.pipeline.completed")
                 {
                     CompletedPipelineExecutor executor(query_state->io.pipeline);
 
@@ -742,9 +752,11 @@ void TCPHandler::runImpl()
             }
             else
             {
+                INSTRUMENT_FUNCTION_UPDATE(6, "Loop_onFinish")
                 query_state->io.onFinish();
             }
 
+            INSTRUMENT_FUNCTION_UPDATE(7, "Loop_Finalize")
             /// Do it before sending end of stream, to have a chance to show log message in client.
             query_scope->logPeakMemoryUsage();
 
@@ -1237,15 +1249,19 @@ void TCPHandler::processInsertQuery(QueryState & state)
 
 void TCPHandler::processOrdinaryQuery(QueryState & state)
 {
+    INSTRUMENT_FUNCTION()
+
     auto & pipeline = state.io.pipeline;
 
     if (state.query_context->getSettingsRef()[Setting::allow_experimental_query_deduplication])
     {
+        INSTRUMENT_FUNCTION_UPDATE(1, "sendPartUUIDs")
         sendPartUUIDs(state);
     }
 
     /// Send header-block, to allow client to prepare output format for data to send.
     {
+        INSTRUMENT_FUNCTION_UPDATE(2, "sendData")
         const auto & header = pipeline.getHeader();
 
         if (header)
@@ -1255,6 +1271,8 @@ void TCPHandler::processOrdinaryQuery(QueryState & state)
     }
 
     {
+        INSTRUMENT_FUNCTION_UPDATE(3, "Executor")
+
         PullingAsyncPipelineExecutor executor(pipeline);
         pipeline.setConcurrencyControl(state.query_context->getSettingsRef()[Setting::use_concurrency_control]);
         CurrentMetrics::Increment query_thread_metric_increment{CurrentMetrics::QueryThread};
@@ -1266,16 +1284,23 @@ void TCPHandler::processOrdinaryQuery(QueryState & state)
             {
 
                 {
+                    INSTRUMENT_FUNCTION_UPDATE(4, "while_lock")
                     std::lock_guard lock(callback_mutex);
+
+                    INSTRUMENT_FUNCTION_UPDATE(5, "while_receivePacketsExpectCancel")
                     receivePacketsExpectCancel(state);
                 }
 
+                INSTRUMENT_FUNCTION_UPDATE(6, "while_unlock")
+
                 if (state.stop_read_return_partial_result)
                 {
+                    INSTRUMENT_FUNCTION_UPDATE(7, "while_cancelReading")
                     executor.cancelReading();
                 }
 
                 {
+                    INSTRUMENT_FUNCTION_UPDATE(8, "while_lock2")
                     std::lock_guard lock(callback_mutex);
 
                     if (after_send_progress.elapsed() / 1000 >= interactive_delay)
@@ -1286,14 +1311,20 @@ void TCPHandler::processOrdinaryQuery(QueryState & state)
                         sendSelectProfileEvents(state);
                     }
 
+                    INSTRUMENT_FUNCTION_UPDATE(9, "while_sendLogs")
                     sendLogs(state);
 
                     if (block)
                     {
-                        if (!state.io.null_format)
+                        INSTRUMENT_FUNCTION_UPDATE(10, "while_block")
+                        if (!state.io.null_format) {
+                            INSTRUMENT_FUNCTION_UPDATE(11, "while_sendData")
                             sendData(state, block);
+                        }
                     }
+
                 }
+                INSTRUMENT_FUNCTION_UPDATE(12, "while_end")
             }
         }
         catch (...)
@@ -2641,6 +2672,8 @@ void TCPHandler::sendProgress(QueryState & state)
 
 void TCPHandler::sendLogs(QueryState & state)
 {
+    INSTRUMENT_FUNCTION()
+
     if (!state.logs_queue)
         return;
 
@@ -2656,8 +2689,9 @@ void TCPHandler::sendLogs(QueryState & state)
         }
         else
         {
-            for (size_t j = 0; j < logs_columns.size(); ++j)
+            for (size_t j = 0; j < logs_columns.size(); ++j) {
                 logs_columns[j]->insertRangeFrom(*curr_logs_columns[j], 0, curr_logs_columns[j]->size());
+            }
         }
     }
 

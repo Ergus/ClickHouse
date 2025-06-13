@@ -22,6 +22,8 @@
 #include <Common/OpenTelemetryTraceContext.h>
 #include <Core/Settings.h>
 
+#include <Profiler.hpp>
+
 #ifndef NDEBUG
     #include <Common/Stopwatch.h>
 #endif
@@ -124,6 +126,8 @@ bool PipelineExecutor::tryUpdateExecutionStatus(ExecutionStatus expected, Execut
 
 void PipelineExecutor::execute(size_t num_threads, bool concurrency_control)
 {
+    INSTRUMENT_FUNCTION("PipelineExecutor::execute")
+
     checkTimeLimit();
     num_threads = std::max<size_t>(num_threads, 1);
 
@@ -134,11 +138,13 @@ void PipelineExecutor::execute(size_t num_threads, bool concurrency_control)
     {
         executeImpl(num_threads, concurrency_control);
 
+        INSTRUMENT_FUNCTION_UPDATE(2, "PipelineExecutor::execute_loop1")
         /// Log all of the LOGICAL_ERROR exceptions.
         for (auto & node : graph->nodes)
             if (node->exception && getExceptionErrorCode(node->exception) == ErrorCodes::LOGICAL_ERROR)
                 tryLogException(node->exception, log);
 
+        INSTRUMENT_FUNCTION_UPDATE(3, "PipelineExecutor::execute_loop2")
         /// Rethrow the first exception.
         for (auto & node : graph->nodes)
             if (node->exception)
@@ -162,6 +168,7 @@ void PipelineExecutor::execute(size_t num_threads, bool concurrency_control)
 
 bool PipelineExecutor::executeStep(std::atomic_bool * yield_flag)
 {
+    INSTRUMENT_FUNCTION("PipelineExecutor::executeStep")
     if (!is_execution_initialized)
     {
         initializeExecution(1, true);
@@ -288,6 +295,7 @@ void PipelineExecutor::executeSingleThread(size_t thread_num)
 
 void PipelineExecutor::executeStepImpl(size_t thread_num, std::atomic_bool * yield_flag)
 {
+    INSTRUMENT_FUNCTION("PipelineExecutor::executeStepImpl")
 #ifndef NDEBUG
     Stopwatch total_time_watch;
 #endif
@@ -449,6 +457,8 @@ void PipelineExecutor::spawnThreads()
 
 void PipelineExecutor::spawnThreadsImpl(AcquiredSlotPtr slot)
 {
+    INSTRUMENT_FUNCTION("PipelineExecutor::spawnThreadsImpl")
+
     while (cpu_slots)
     {
         if (!slot)
@@ -465,6 +475,7 @@ void PipelineExecutor::spawnThreadsImpl(AcquiredSlotPtr slot)
         /// Start new thread
         pool->scheduleOrThrowOnError([this, thread_num, thread_group = CurrentThread::getGroup(), my_slot = std::move(slot)]
         {
+            INSTRUMENT_FUNCTION("lambda_scheduleOrThrowOnError")
             ThreadGroupSwitcher switcher(thread_group, "QueryPipelineEx");
 
             try
@@ -488,6 +499,8 @@ void PipelineExecutor::spawnThreadsImpl(AcquiredSlotPtr slot)
 
 void PipelineExecutor::executeImpl(size_t num_threads, bool concurrency_control)
 {
+    INSTRUMENT_FUNCTION("PipelineExecutor::executeImpl")
+
     initializeExecution(num_threads, concurrency_control);
 
     try

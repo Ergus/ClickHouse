@@ -7,6 +7,8 @@
 #include <QueryPipeline/ReadProgressCallback.h>
 #include <Common/setThreadName.h>
 
+#include <Profiler.hpp>
+
 namespace DB
 {
 
@@ -69,6 +71,7 @@ const Block & PullingAsyncPipelineExecutor::getHeader() const
 static void threadFunction(
     PullingAsyncPipelineExecutor::Data & data, ThreadGroupPtr thread_group, size_t num_threads, bool concurrency_control)
 {
+    INSTRUMENT_FUNCTION("PullingAsyncPipelineExecutor::threadFunction")
     try
     {
         ThreadGroupSwitcher switcher(thread_group, "QueryPullPipeEx");
@@ -90,8 +93,10 @@ static void threadFunction(
 
 bool PullingAsyncPipelineExecutor::pull(Chunk & chunk, uint64_t milliseconds)
 {
+    INSTRUMENT_FUNCTION("PullingAsyncPipelineExecutor::pull_chunk")
     if (!data)
     {
+        INSTRUMENT_FUNCTION("build_data")
         data = std::make_unique<Data>();
         data->executor = std::make_shared<PipelineExecutor>(pipeline.processors, pipeline.process_list_element);
         data->executor->setReadProgressCallback(pipeline.getReadProgressCallback());
@@ -112,6 +117,7 @@ bool PullingAsyncPipelineExecutor::pull(Chunk & chunk, uint64_t milliseconds)
 
     if (is_execution_finished)
     {
+        INSTRUMENT_FUNCTION_UPDATE(4, "is_execution_finished")
         /// If lazy format is finished, we don't cancel pipeline but wait for main thread to be finished.
         data->is_finished = true;
         /// Wait thread and rethrow exception if any.
@@ -119,13 +125,18 @@ bool PullingAsyncPipelineExecutor::pull(Chunk & chunk, uint64_t milliseconds)
         return false;
     }
 
+    INSTRUMENT_FUNCTION_UPDATE(5, "getChunk")
     chunk = lazy_format->getChunk(milliseconds);
+
+    INSTRUMENT_FUNCTION_UPDATE(6, "rethrowExceptionIfHas2")
     data->rethrowExceptionIfHas();
     return true;
 }
 
 bool PullingAsyncPipelineExecutor::pull(Block & block, uint64_t milliseconds)
 {
+    INSTRUMENT_FUNCTION("PullingAsyncPipelineExecutor::pull_block")
+
     Chunk chunk;
 
     if (!pull(chunk, milliseconds))

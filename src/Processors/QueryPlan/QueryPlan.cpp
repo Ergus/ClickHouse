@@ -16,6 +16,8 @@
 #include <QueryPipeline/QueryPipelineBuilder.h>
 #include <Planner/Utils.h>
 
+#include <Profiler.hpp>
+
 namespace DB
 {
 
@@ -168,9 +170,13 @@ QueryPipelineBuilderPtr QueryPlan::buildQueryPipeline(
     const BuildQueryPipelineSettings & build_pipeline_settings,
     bool do_optimize)
 {
+    INSTRUMENT_FUNCTION("QueryPlan::buildQueryPipeline")
+
     checkInitialized();
-    if (do_optimize)
+    if (do_optimize) {
+        INSTRUMENT_FUNCTION_UPDATE(2, "Optimize")
         optimize(optimization_settings);
+    }
 
     struct Frame
     {
@@ -185,6 +191,7 @@ QueryPipelineBuilderPtr QueryPlan::buildQueryPipeline(
 
     while (!stack.empty())
     {
+        INSTRUMENT_FUNCTION_UPDATE(3, "while_stack")
         auto & frame = stack.top();
 
         if (last_pipeline)
@@ -208,6 +215,7 @@ QueryPipelineBuilderPtr QueryPlan::buildQueryPipeline(
             stack.push(Frame{.node = frame.node->children[next_child]});
     }
 
+    INSTRUMENT_FUNCTION_UPDATE(4, "pipeline_sets")
     last_pipeline->setProgressCallback(build_pipeline_settings.progress_callback);
     last_pipeline->setProcessListElement(build_pipeline_settings.process_list_element);
     last_pipeline->addResources(std::move(resources));
@@ -484,6 +492,8 @@ void QueryPlan::explainPipeline(WriteBuffer & buffer, const ExplainPipelineOptio
 
 void QueryPlan::optimize(const QueryPlanOptimizationSettings & optimization_settings)
 {
+    INSTRUMENT_FUNCTION()
+
     /// optimization need to be applied before "mergeExpressions" optimization
     /// it removes redundant sorting steps, but keep underlying expressions,
     /// so "mergeExpressions" optimization handles them afterwards

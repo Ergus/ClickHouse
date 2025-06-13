@@ -17,6 +17,9 @@
 #include <unordered_map>
 #include <algorithm>
 
+#include <Profiler.hpp>
+
+
 namespace DB
 {
 
@@ -33,6 +36,8 @@ GinIndexPostingsBuilder::GinIndexPostingsBuilder(UInt64 limit)
 
 bool GinIndexPostingsBuilder::contains(UInt32 row_id) const
 {
+    INSTRUMENT_FUNCTION("GinIndexPostingsBuilder::contains")
+
     if (useRoaring())
         return rowid_bitmap.contains(row_id);
 
@@ -42,11 +47,13 @@ bool GinIndexPostingsBuilder::contains(UInt32 row_id) const
 
 void GinIndexPostingsBuilder::add(UInt32 row_id)
 {
+    INSTRUMENT_FUNCTION("GinIndexPostingsBuilder::add")
     if (containsAllRows())
         return;
 
     if (useRoaring())
     {
+        INSTRUMENT_FUNCTION_UPDATE(2, "useRoaring")
         if (rowid_bitmap.cardinality() == size_limit)
         {
             /// reset the postings list with MATCH ALWAYS;
@@ -58,6 +65,7 @@ void GinIndexPostingsBuilder::add(UInt32 row_id)
     }
     else
     {
+        INSTRUMENT_FUNCTION_UPDATE(3, "elseUseRoaring")
         assert(rowid_lst_length < MIN_SIZE_FOR_ROARING_ENCODING);
         rowid_lst[rowid_lst_length] = row_id;
         rowid_lst_length++;
@@ -74,12 +82,14 @@ void GinIndexPostingsBuilder::add(UInt32 row_id)
 
 UInt64 GinIndexPostingsBuilder::serialize(WriteBuffer & buffer)
 {
+    INSTRUMENT_FUNCTION("GinIndexPostingsBuilder::serialize")
     UInt64 written_bytes = 0;
     buffer.write(rowid_lst_length);
     written_bytes += 1;
 
     if (useRoaring())
     {
+        INSTRUMENT_FUNCTION_UPDATE(2, "useRoaring")
         rowid_bitmap.runOptimize();
         auto size = rowid_bitmap.getSizeInBytes();
         auto buf = std::make_unique<char[]>(size);
@@ -101,6 +111,7 @@ UInt64 GinIndexPostingsBuilder::serialize(WriteBuffer & buffer)
     }
     else
     {
+        INSTRUMENT_FUNCTION_UPDATE(3, "elseUseRoaring")
         for (size_t i = 0; i <  rowid_lst_length; ++i)
         {
             writeVarUInt(rowid_lst[i], buffer);
@@ -113,6 +124,7 @@ UInt64 GinIndexPostingsBuilder::serialize(WriteBuffer & buffer)
 
 GinIndexPostingsListPtr GinIndexPostingsBuilder::deserialize(ReadBuffer & buffer)
 {
+    INSTRUMENT_FUNCTION("GinIndexPostingsBuilder::deserialize")
     UInt8 postings_list_size = 0;
     buffer.readStrict(reinterpret_cast<char &>(postings_list_size));
 
@@ -161,6 +173,7 @@ GinIndexStore::GinIndexStore(const String & name_, DataPartStoragePtr storage_, 
 
 bool GinIndexStore::exists() const
 {
+    INSTRUMENT_FUNCTION("GinIndexStore::exists")
     String segment_id_file_name = getName() + GIN_SEGMENT_ID_FILE_TYPE;
     return storage->existsFile(segment_id_file_name);
 }
@@ -177,7 +190,10 @@ void GinIndexStore::verifyFormatVersionIsSupported(size_t version)
 
 UInt32 GinIndexStore::getNextSegmentIDRange(size_t n)
 {
+    INSTRUMENT_FUNCTION("GinIndexStore::getNextSegmentIDRange")
+
     std::lock_guard guard(mutex);
+    INSTRUMENT_FUNCTION_UPDATE(2, "locked")
 
     if (next_available_segment_id == 0)
         initSegmentId();
@@ -201,6 +217,8 @@ UInt32 GinIndexStore::getNextSegmentID()
 
 UInt32 GinIndexStore::getNumOfSegments()
 {
+    INSTRUMENT_FUNCTION("GinIndexStore::getNumOfSegments")
+
     if (cached_segment_num)
         return cached_segment_num;
 
@@ -232,6 +250,8 @@ bool GinIndexStore::needToWrite() const
 
 void GinIndexStore::finalize()
 {
+    INSTRUMENT_FUNCTION("GinIndexStore::finalize")
+
     if (!current_postings.empty())
     {
         writeSegment();
@@ -250,6 +270,8 @@ void GinIndexStore::finalize()
 
 void GinIndexStore::cancel() noexcept
 {
+    INSTRUMENT_FUNCTION("GinIndexStore::cancel")
+
     if (metadata_file_stream)
         metadata_file_stream->cancel();
 
@@ -262,6 +284,8 @@ void GinIndexStore::cancel() noexcept
 
 void GinIndexStore::initSegmentId()
 {
+    INSTRUMENT_FUNCTION("GinIndexStore::initSegmentId")
+
     String segment_id_file_name = getName() + GIN_SEGMENT_ID_FILE_TYPE;
 
     UInt32 segment_id;
@@ -284,6 +308,8 @@ void GinIndexStore::initSegmentId()
 
 void GinIndexStore::initFileStreams()
 {
+    INSTRUMENT_FUNCTION("GinIndexStore::initFileStreams")
+
     String metadata_file_name = getName() + GIN_SEGMENT_METADATA_FILE_TYPE;
     String dict_file_name = getName() + GIN_DICTIONARY_FILE_TYPE;
     String postings_file_name = getName() + GIN_POSTINGS_FILE_TYPE;
@@ -308,6 +334,8 @@ void GinIndexStore::writeSegmentId()
 
 void GinIndexStore::writeSegment()
 {
+    INSTRUMENT_FUNCTION("GinIndexStore::writeSegment")
+
     if (metadata_file_stream == nullptr)
         initFileStreams();
 
@@ -381,6 +409,8 @@ GinIndexStoreDeserializer::GinIndexStoreDeserializer(const GinIndexStorePtr & st
 
 void GinIndexStoreDeserializer::initFileStreams()
 {
+    INSTRUMENT_FUNCTION("GinIndexStoreDeserializer::initFileStreams")
+
     String metadata_file_name = store->getName() + GinIndexStore::GIN_SEGMENT_METADATA_FILE_TYPE;
     String dict_file_name = store->getName() + GinIndexStore::GIN_DICTIONARY_FILE_TYPE;
     String postings_file_name = store->getName() + GinIndexStore::GIN_POSTINGS_FILE_TYPE;
@@ -391,6 +421,8 @@ void GinIndexStoreDeserializer::initFileStreams()
 }
 void GinIndexStoreDeserializer::readSegments()
 {
+    INSTRUMENT_FUNCTION("GinIndexStoreDeserializer::initFileStreams")
+
     UInt32 num_segments = store->getNumOfSegments();
     if (num_segments == 0)
         return;
@@ -413,12 +445,16 @@ void GinIndexStoreDeserializer::readSegments()
 
 void GinIndexStoreDeserializer::readSegmentDictionaries()
 {
+    INSTRUMENT_FUNCTION("GinIndexStoreDeserializer::readSegmentDictionaries")
+
     for (UInt32 seg_index = 0; seg_index < store->getNumOfSegments(); ++seg_index)
         readSegmentDictionary(seg_index);
 }
 
 void GinIndexStoreDeserializer::readSegmentDictionary(UInt32 segment_id)
 {
+    INSTRUMENT_FUNCTION("GinIndexStoreDeserializer::readSegmentDictionary")
+
     /// Check validity of segment_id
     auto it = store->segment_dictionaries.find(segment_id);
     if (it == store->segment_dictionaries.end())
@@ -441,6 +477,8 @@ void GinIndexStoreDeserializer::readSegmentDictionary(UInt32 segment_id)
 
 GinSegmentedPostingsListContainer GinIndexStoreDeserializer::readSegmentedPostingsLists(const String & term)
 {
+    INSTRUMENT_FUNCTION("GinIndexStoreDeserializer::readSegmentedPostingsLists")
+
     assert(postings_file_stream != nullptr);
 
     GinSegmentedPostingsListContainer container;
@@ -448,6 +486,7 @@ GinSegmentedPostingsListContainer GinIndexStoreDeserializer::readSegmentedPostin
     {
         auto segment_id = seg_dict.first;
 
+        INSTRUMENT_FUNCTION_UPDATE(2, "getOutput")
         auto [offset, found] = seg_dict.second->offsets.getOutput(term);
         if (!found)
             continue;
@@ -455,6 +494,7 @@ GinSegmentedPostingsListContainer GinIndexStoreDeserializer::readSegmentedPostin
         // Set postings file pointer for reading postings list
         postings_file_stream->seek(seg_dict.second->postings_start_offset + offset, SEEK_SET);
 
+        INSTRUMENT_FUNCTION_UPDATE(3, "deserialize")
         // Read posting list
         auto postings_list = GinIndexPostingsBuilder::deserialize(*postings_file_stream);
         container[segment_id] = postings_list;
@@ -464,13 +504,17 @@ GinSegmentedPostingsListContainer GinIndexStoreDeserializer::readSegmentedPostin
 
 GinPostingsCachePtr GinIndexStoreDeserializer::createPostingsCacheFromTerms(const std::vector<String> & terms)
 {
+    INSTRUMENT_FUNCTION("GinIndexStoreDeserializer::createPostingsCacheFromTerms")
+
     auto postings_cache = std::make_shared<GinPostingsCache>();
     for (const auto & term : terms)
     {
+        INSTRUMENT_FUNCTION_UPDATE(2, "find")
         // Make sure don't read for duplicated terms
         if (postings_cache->find(term) != postings_cache->end())
             continue;
 
+        INSTRUMENT_FUNCTION_UPDATE(3, "readSegmented")
         auto container = readSegmentedPostingsLists(term);
         (*postings_cache)[term] = container;
     }
@@ -479,6 +523,8 @@ GinPostingsCachePtr GinIndexStoreDeserializer::createPostingsCacheFromTerms(cons
 
 GinPostingsCachePtr PostingsCacheForStore::getPostings(const String & query_string) const
 {
+    INSTRUMENT_FUNCTION()
+
     auto it = cache.find(query_string);
     if (it == cache.end())
         return nullptr;
@@ -493,19 +539,27 @@ GinIndexStoreFactory & GinIndexStoreFactory::instance()
 
 GinIndexStorePtr GinIndexStoreFactory::get(const String & name, DataPartStoragePtr storage)
 {
+    INSTRUMENT_FUNCTION("GinIndexStoreFactory::get")
+
     const String & part_path = storage->getRelativePath();
     String key = name + ":" + part_path;
 
+    INSTRUMENT_FUNCTION_UPDATE(2, "get_lockin")
     std::lock_guard lock(mutex);
+    INSTRUMENT_FUNCTION_UPDATE(3, "get_locked")
+
     GinIndexStores::const_iterator it = stores.find(key);
 
     if (it == stores.end())
     {
+        INSTRUMENT_FUNCTION_UPDATE(4, "if_end")
+
         GinIndexStorePtr store = std::make_shared<GinIndexStore>(name, storage);
         if (!store->exists())
             return nullptr;
 
         GinIndexStoreDeserializer deserializer(store);
+
         deserializer.readSegments();
         deserializer.readSegmentDictionaries();
 
@@ -518,6 +572,8 @@ GinIndexStorePtr GinIndexStoreFactory::get(const String & name, DataPartStorageP
 
 void GinIndexStoreFactory::remove(const String & part_path)
 {
+    INSTRUMENT_FUNCTION("GinIndexStoreFactory::remove")
+
     std::lock_guard lock(mutex);
     for (auto it = stores.begin(); it != stores.end();)
     {

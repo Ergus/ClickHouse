@@ -23,6 +23,8 @@
 #include <base/types.h>
 #include <algorithm>
 
+#include <Profiler.hpp>
+
 namespace DB
 {
 namespace ErrorCodes
@@ -205,6 +207,7 @@ MergeTreeIndexConditionGin::MergeTreeIndexConditionGin(
     , gin_filter_params(gin_filter_params_)
     , token_extractor(token_extactor_)
 {
+    INSTRUMENT_FUNCTION()
     if (!predicate)
     {
         rpn.push_back(RPNElement::FUNCTION_UNKNOWN);
@@ -352,6 +355,7 @@ bool MergeTreeIndexConditionGin::mayBeTrueOnGranuleInPart(MergeTreeIndexGranuleP
 
 bool MergeTreeIndexConditionGin::traverseAtomAST(const RPNBuilderTreeNode & node, RPNElement & out)
 {
+    INSTRUMENT_FUNCTION()
     {
         Field const_value;
         DataTypePtr const_type;
@@ -445,6 +449,8 @@ bool MergeTreeIndexConditionGin::traverseASTEquals(
     const Field & value_field,
     RPNElement & out)
 {
+    INSTRUMENT_FUNCTION()
+
     auto value_data_type = WhichDataType(value_type);
     if (!value_data_type.isStringOrFixedString() && !value_data_type.isArray())
         return false;
@@ -456,6 +462,7 @@ bool MergeTreeIndexConditionGin::traverseASTEquals(
 
     if (key_ast.isFunction())
     {
+        INSTRUMENT_FUNCTION_UPDATE(2, "isFunction")
         const auto function = key_ast.toFunctionNode();
         if (function.getFunctionName() == "arrayElement")
         {
@@ -509,6 +516,7 @@ bool MergeTreeIndexConditionGin::traverseASTEquals(
 
     if (map_key_exists && (function_name == "has" || function_name == "mapContainsKey"))
     {
+        INSTRUMENT_FUNCTION_UPDATE(3, "map_key_exists")
         out.key_column = key_column_num;
         out.function = RPNElement::FUNCTION_HAS;
         out.gin_filter = std::make_unique<GinFilter>(gin_filter_params);
@@ -518,6 +526,7 @@ bool MergeTreeIndexConditionGin::traverseASTEquals(
     }
     if (function_name == "has")
     {
+        INSTRUMENT_FUNCTION_UPDATE(4, "has")
         out.key_column = key_column_num;
         out.function = RPNElement::FUNCTION_HAS;
         out.gin_filter = std::make_unique<GinFilter>(gin_filter_params);
@@ -528,6 +537,7 @@ bool MergeTreeIndexConditionGin::traverseASTEquals(
 
     if (function_name == "notEquals")
     {
+        INSTRUMENT_FUNCTION_UPDATE(5, "notEquals")
         out.key_column = key_column_num;
         out.function = RPNElement::FUNCTION_NOT_EQUALS;
         out.gin_filter = std::make_unique<GinFilter>(gin_filter_params);
@@ -537,6 +547,7 @@ bool MergeTreeIndexConditionGin::traverseASTEquals(
     }
     if (function_name == "equals")
     {
+        INSTRUMENT_FUNCTION_UPDATE(6, "equals")
         out.key_column = key_column_num;
         out.function = RPNElement::FUNCTION_EQUALS;
         out.gin_filter = std::make_unique<GinFilter>(gin_filter_params);
@@ -546,6 +557,7 @@ bool MergeTreeIndexConditionGin::traverseASTEquals(
     }
     if (function_name == "like")
     {
+        INSTRUMENT_FUNCTION_UPDATE(7, "like")
         out.key_column = key_column_num;
         out.function = RPNElement::FUNCTION_EQUALS;
         out.gin_filter = std::make_unique<GinFilter>(gin_filter_params);
@@ -555,6 +567,7 @@ bool MergeTreeIndexConditionGin::traverseASTEquals(
     }
     if (function_name == "notLike")
     {
+        INSTRUMENT_FUNCTION_UPDATE(8, "notLike")
         out.key_column = key_column_num;
         out.function = RPNElement::FUNCTION_NOT_EQUALS;
         out.gin_filter = std::make_unique<GinFilter>(gin_filter_params);
@@ -564,6 +577,7 @@ bool MergeTreeIndexConditionGin::traverseASTEquals(
     }
     if (function_name == "hasToken" || function_name == "hasTokenOrNull")
     {
+        INSTRUMENT_FUNCTION_UPDATE(9, "hasToken")
         out.key_column = key_column_num;
         out.function = RPNElement::FUNCTION_EQUALS;
         out.gin_filter = std::make_unique<GinFilter>(gin_filter_params);
@@ -573,6 +587,7 @@ bool MergeTreeIndexConditionGin::traverseASTEquals(
     }
     if (function_name == "startsWith")
     {
+        INSTRUMENT_FUNCTION_UPDATE(10, "startsWith")
         out.key_column = key_column_num;
         out.function = RPNElement::FUNCTION_EQUALS;
         out.gin_filter = std::make_unique<GinFilter>(gin_filter_params);
@@ -582,6 +597,7 @@ bool MergeTreeIndexConditionGin::traverseASTEquals(
     }
     if (function_name == "endsWith")
     {
+        INSTRUMENT_FUNCTION_UPDATE(11, "endsWith")
         out.key_column = key_column_num;
         out.function = RPNElement::FUNCTION_EQUALS;
         out.gin_filter = std::make_unique<GinFilter>(gin_filter_params);
@@ -591,6 +607,7 @@ bool MergeTreeIndexConditionGin::traverseASTEquals(
     }
     if (function_name == "multiSearchAny")
     {
+        INSTRUMENT_FUNCTION_UPDATE(12, "multiSearchAny")
         out.key_column = key_column_num;
         out.function = RPNElement::FUNCTION_MULTI_SEARCH;
 
@@ -611,6 +628,7 @@ bool MergeTreeIndexConditionGin::traverseASTEquals(
     }
     if (function_name == "match")
     {
+        INSTRUMENT_FUNCTION_UPDATE(13, "match")
         out.key_column = key_column_num;
         out.function = RPNElement::FUNCTION_MATCH;
 
@@ -628,6 +646,7 @@ bool MergeTreeIndexConditionGin::traverseASTEquals(
         /// out.gin_filter means required_substring exists
         if (!alternatives.empty())
         {
+            INSTRUMENT_FUNCTION_UPDATE(14, "match_empty")
             std::vector<GinFilters> gin_filters;
             gin_filters.emplace_back();
             for (const auto & alternative : alternatives)
@@ -639,6 +658,7 @@ bool MergeTreeIndexConditionGin::traverseASTEquals(
         }
         else
         {
+            INSTRUMENT_FUNCTION_UPDATE(15, "match_non_empty")
             out.gin_filter = std::make_unique<GinFilter>(gin_filter_params);
             token_extractor->substringToGinFilter(required_substring.data(), required_substring.size(), *out.gin_filter, false, false);
         }

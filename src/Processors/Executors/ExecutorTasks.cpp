@@ -1,5 +1,7 @@
 #include <Processors/Executors/ExecutorTasks.h>
 
+#include <Profiler.hpp>
+
 namespace DB
 {
 
@@ -68,7 +70,7 @@ void ExecutorTasks::tryGetTask(ExecutionThreadContext & context)
 {
     {
         std::unique_lock lock(mutex);
-
+ 
     #if defined(OS_LINUX)
         if (num_threads == 1)
         {

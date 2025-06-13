@@ -32,6 +32,8 @@
 #include <Interpreters/Context.h>
 #include <Interpreters/QueryLog.h>
 
+#include <Profiler.hpp>
+
 namespace DB
 {
 
@@ -253,6 +255,8 @@ std::pair<Block, PlannerContextPtr> InterpreterSelectQueryAnalyzer::getSampleBlo
 
 BlockIO InterpreterSelectQueryAnalyzer::execute()
 {
+    INSTRUMENT_FUNCTION("InterpreterSelectQueryAnalyzer::execute")
+
     auto pipeline_builder = buildQueryPipeline();
 
     BlockIO result;
@@ -278,6 +282,8 @@ QueryPlan && InterpreterSelectQueryAnalyzer::extractQueryPlan() &&
 
 QueryPipelineBuilder InterpreterSelectQueryAnalyzer::buildQueryPipeline()
 {
+    INSTRUMENT_FUNCTION("InterpreterSelectQueryAnalyzer::buildQueryPipeline")
+
     planner.buildQueryPlanIfNeeded();
     auto & query_plan = planner.getQueryPlan();
 

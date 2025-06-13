@@ -3,6 +3,7 @@
 #include <Processors/Port.h>
 #include <Processors/Transforms/AggregatingTransform.h>
 
+#include <Profiler.hpp>
 
 namespace DB
 {
@@ -14,8 +15,16 @@ LazyOutputFormat::LazyOutputFormat(const Block & header)
 {
 }
 
+
+void LazyOutputFormat::consume(Chunk chunk)
+{
+    INSTRUMENT_FUNCTION("LazyOutputFormat::consume")
+    (void)(queue.emplace(std::move(chunk)));
+}
+
 Chunk LazyOutputFormat::getChunk(UInt64 milliseconds)
 {
+    INSTRUMENT_FUNCTION("LazyOutputFormat::getChunk")
     if (isFinished())
         return {};
 

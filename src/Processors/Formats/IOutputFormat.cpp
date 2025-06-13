@@ -5,6 +5,7 @@
 #include <Processors/Formats/IOutputFormat.h>
 #include <Processors/Port.h>
 
+#include <Profiler.hpp>
 
 namespace DB
 {
@@ -69,7 +70,10 @@ static Chunk prepareTotals(Chunk chunk)
 
 void IOutputFormat::work()
 {
+    INSTRUMENT_FUNCTION("IOutputFormat::work")
+
     std::lock_guard lock(writing_mutex);
+    INSTRUMENT_FUNCTION_UPDATE(2, "locked")
 
     if (has_progress_update_to_write)
     {
@@ -90,6 +94,7 @@ void IOutputFormat::work()
         return;
     }
 
+    INSTRUMENT_FUNCTION_UPDATE(3, "switch")
     switch (current_block_kind)
     {
         case Main:
