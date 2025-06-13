@@ -654,6 +654,11 @@ if (TARGET ch_contrib::rapidjson)
     dbms_target_link_libraries(PRIVATE ch_contrib::rapidjson)
 endif()
 
+if (ENABLE_EXTRAE_PROFILING)
+    add_compile_definitions(PROFILER_ENABLED=1)
+endif()
+dbms_target_link_libraries(PRIVATE ch_contrib::extraewin)
+
 dbms_target_link_libraries(PUBLIC ch_contrib::consistent_hashing)
 
 if (TARGET ch_contrib::usearch)
