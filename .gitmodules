@@ -372,3 +372,6 @@
 [submodule "contrib/chdig"]
 	path = contrib/chdig
 	url = https://github.com/azat/chdig.git
+[submodule "ExtraeWin"]
+	path = contrib/ExtraeWin
+	url = https://github.com/Ergus/ExtraeWin.git
