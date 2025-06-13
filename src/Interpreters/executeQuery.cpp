@@ -87,6 +87,8 @@
 
 #include <boost/algorithm/string/predicate.hpp>
 
+#include <Profiler.hpp>
+
 namespace ProfileEvents
 {
     extern const Event Query;
@@ -927,6 +929,8 @@ static BlockIO executeQueryImpl(
     ReadBuffer * istr,
     ASTPtr & out_ast)
 {
+    INSTRUMENT_FUNCTION()
+    
     const bool internal = flags.internal;
 
     /// query_span is a special span, when this function exits, it's lifetime is not ended, but ends when the query finishes.
@@ -978,6 +982,7 @@ static BlockIO executeQueryImpl(
     /// Parse the query from string.
     try
     {
+        INSTRUMENT_FUNCTION_UPDATE(2, "Parse_query_from_string")
         if (stage == QueryProcessingStage::QueryPlan)
         {
             /// Do not parse Query
@@ -1139,6 +1144,7 @@ static BlockIO executeQueryImpl(
         throw;
     }
 
+    INSTRUMENT_FUNCTION_UPDATE(3, "AfterParsed")
     /// Avoid early destruction of process_list_entry if it was not saved to `res` yet (in case of exception)
     ProcessList::EntryPtr process_list_entry;
     BlockIO res;
@@ -1162,6 +1168,8 @@ static BlockIO executeQueryImpl(
 
     try
     {
+        INSTRUMENT_FUNCTION_UPDATE(4)
+
         if (auto txn = context->getCurrentTransaction())
         {
             chassert(txn->getState() != MergeTreeTransaction::COMMITTING);
@@ -1520,8 +1528,10 @@ static BlockIO executeQueryImpl(
                         span = std::make_unique<OpenTelemetry::SpanHolder>(class_name + "::execute()");
                     }
 
+                    INSTRUMENT_FUNCTION_UPDATE(5, "interpreter->execute")
                     res = interpreter->execute();
 
+                    INSTRUMENT_FUNCTION_UPDATE(6, "interpreter->executed")
                     /// If it is a non-internal SELECT query, and active (write) use of the query result cache is enabled, then add a
                     /// processor on top of the pipeline which stores the result in the query result cache.
                     if (can_use_query_result_cache && settings[Setting::enable_writes_to_query_cache])
@@ -1576,10 +1586,10 @@ static BlockIO executeQueryImpl(
                                 query_result_cache_usage = QueryResultCacheUsage::Write;
                             }
                         }
-                    }
-                }
-            }
-        }
+                    } // can_use_query_result_cache
+                } // interpreter
+            } // !get_result_from_query_result_cache()
+        } // !async_insert
 
         if (process_list_entry)
         {
@@ -1594,6 +1604,8 @@ static BlockIO executeQueryImpl(
 
         if (query_plan)
         {
+            INSTRUMENT_FUNCTION_UPDATE(7, "if_query_plan")
+
             auto plan = QueryPlan::makeSets(std::move(*query_plan), context);
 
             plan.resolveStorages(context);
@@ -1627,6 +1639,7 @@ static BlockIO executeQueryImpl(
             pipeline.setProcessListElement(context->getProcessListElement());
         }
 
+        INSTRUMENT_FUNCTION_UPDATE(8, "QueryLogStuff")
         /// Everything related to query log.
         {
             QueryLogElement elem = logQueryStart(

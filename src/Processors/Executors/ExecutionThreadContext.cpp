@@ -4,6 +4,8 @@
 #include <Common/CurrentThread.h>
 #include <Common/Stopwatch.h>
 
+#include <Profiler.hpp>
+
 namespace DB
 {
 
@@ -45,11 +47,14 @@ static bool checkCanAddAdditionalInfoToException(const DB::Exception & exception
 
 static void executeJob(ExecutingGraph::Node * node, ReadProgressCallback * read_progress_callback)
 {
+    INSTRUMENT_FUNCTION("executeJob")
     try
     {
+
         if (node->processor->isSpillable() && CurrentThread::getGroup())
             CurrentThread::getGroup()->memory_spill_scheduler->checkAndSpill(node->processor);
 
+        INSTRUMENT_FUNCTION_UPDATE(2, "node::processor::work")
         node->processor->work();
 
         /// Update read progress only for source nodes.
@@ -59,19 +64,26 @@ static void executeJob(ExecutingGraph::Node * node, ReadProgressCallback * read_
         {
             if (auto read_progress = node->processor->getReadProgress())
             {
-                if (read_progress->counters.total_rows_approx)
+                if (read_progress->counters.total_rows_approx) {
+                    INSTRUMENT_FUNCTION_UPDATE(3, "addTotalRowsApprox")
                     read_progress_callback->addTotalRowsApprox(read_progress->counters.total_rows_approx);
+                }
 
-                if (read_progress->counters.total_bytes)
+                if (read_progress->counters.total_bytes) {
+                    INSTRUMENT_FUNCTION_UPDATE(4, "addTotalBytes")
                     read_progress_callback->addTotalBytes(read_progress->counters.total_bytes);
+                }
 
-                if (!read_progress_callback->onProgress(read_progress->counters.read_rows, read_progress->counters.read_bytes, read_progress->limits))
+                if (!read_progress_callback->onProgress(read_progress->counters.read_rows, read_progress->counters.read_bytes, read_progress->limits)) {
+                    INSTRUMENT_FUNCTION_UPDATE(5, "cancel")
                     node->processor->cancel();
+                }
             }
         }
     }
     catch (Exception exception) /// NOLINT
     {
+        INSTRUMENT_FUNCTION_UPDATE(6, "catch")
         /// Copy exception before modifying it because multiple threads can rethrow the same exception
         if (checkCanAddAdditionalInfoToException(exception))
             exception.addMessage("While executing " + node->processor->getName());
@@ -81,6 +93,7 @@ static void executeJob(ExecutingGraph::Node * node, ReadProgressCallback * read_
 
 bool ExecutionThreadContext::executeTask()
 {
+    INSTRUMENT_FUNCTION("ExecutionThreadContext::executeTask")
     std::unique_ptr<OpenTelemetry::SpanHolder> span;
 
     if (trace_processors)

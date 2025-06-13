@@ -60,6 +60,8 @@
 
 #include <IO/WriteBufferFromOStream.h>
 
+#include <Profiler.hpp>
+
 namespace CurrentMetrics
 {
     extern const Metric MergeTreeDataSelectExecutorThreads;
@@ -683,6 +685,8 @@ RangesInDataParts MergeTreeDataSelectExecutor::filterPartsByPrimaryKeyAndSkipInd
     bool find_exact_ranges,
     bool is_final_query)
 {
+    INSTRUMENT_FUNCTION()
+
     const Settings & settings = context->getSettingsRef();
 
     if (context->canUseParallelReplicasOnFollower() && settings[Setting::parallel_replicas_local_plan]
@@ -752,6 +756,7 @@ RangesInDataParts MergeTreeDataSelectExecutor::filterPartsByPrimaryKeyAndSkipInd
 
         auto process_part = [&](size_t part_index)
         {
+            INSTRUMENT_FUNCTION("lambda_process_part")
             if (query_status)
                 query_status->checkTimeLimit();
 
@@ -791,6 +796,7 @@ RangesInDataParts MergeTreeDataSelectExecutor::filterPartsByPrimaryKeyAndSkipInd
 
             for (size_t idx = 0; idx < skip_indexes.useful_indices.size(); ++idx)
             {
+                INSTRUMENT_FUNCTION_UPDATE(2, "Loop_useful_indices")
                 if (ranges.ranges.empty())
                     break;
 
@@ -823,6 +829,7 @@ RangesInDataParts MergeTreeDataSelectExecutor::filterPartsByPrimaryKeyAndSkipInd
 
             for (size_t idx = 0; idx < skip_indexes.merged_indices.size(); ++idx)
             {
+                INSTRUMENT_FUNCTION_UPDATE(3, "Loop_merged_indices")
                 if (ranges.ranges.empty())
                     break;
 
@@ -854,6 +861,7 @@ RangesInDataParts MergeTreeDataSelectExecutor::filterPartsByPrimaryKeyAndSkipInd
         }
         else
         {
+            INSTRUMENT_FUNCTION_UPDATE(2, "ThreadPool")
             /// Parallel loading and filtering of data parts.
             ThreadPool pool(
                 CurrentMetrics::MergeTreeDataSelectExecutorThreads,
@@ -884,6 +892,8 @@ RangesInDataParts MergeTreeDataSelectExecutor::filterPartsByPrimaryKeyAndSkipInd
             pool.wait();
         }
 
+        INSTRUMENT_FUNCTION_UPDATE(3, "Erase_If")
+
         /// Skip empty ranges.
         std::erase_if(
             parts_with_ranges,
@@ -900,8 +910,10 @@ RangesInDataParts MergeTreeDataSelectExecutor::filterPartsByPrimaryKeyAndSkipInd
             });
     }
 
+
     if (metadata_snapshot->hasPrimaryKey())
     {
+        INSTRUMENT_FUNCTION_UPDATE(4, "hasPrimaryKey")
         LOG_DEBUG(
             log,
             "PK index has dropped {}/{} granules, it took {}ms across {} threads.",
@@ -924,6 +936,8 @@ RangesInDataParts MergeTreeDataSelectExecutor::filterPartsByPrimaryKeyAndSkipInd
 
     for (size_t idx = 0; idx < skip_indexes.useful_indices.size(); ++idx)
     {
+        INSTRUMENT_FUNCTION_UPDATE(5, "Loop_useful_indices")
+
         const auto & index_and_condition = skip_indexes.useful_indices[idx];
         const auto & stat = useful_indices_stat[idx];
         const auto & index_name = index_and_condition.index->index.name;
@@ -949,6 +963,8 @@ RangesInDataParts MergeTreeDataSelectExecutor::filterPartsByPrimaryKeyAndSkipInd
 
     for (size_t idx = 0; idx < skip_indexes.merged_indices.size(); ++idx)
     {
+        INSTRUMENT_FUNCTION_UPDATE(6, "Loop_merged_indices")
+
         const auto & index_and_condition = skip_indexes.merged_indices[idx];
         const auto & stat = merged_indices_stat[idx];
         const auto & index_name = "Merged";
@@ -980,6 +996,7 @@ void MergeTreeDataSelectExecutor::filterPartsByQueryConditionCache(
     const ContextPtr & context,
     LoggerPtr log)
 {
+    INSTRUMENT_FUNCTION()
     const auto & settings = context->getSettingsRef();
     if (!settings[Setting::use_query_condition_cache]
             || !settings[Setting::allow_experimental_analyzer]
@@ -1600,6 +1617,8 @@ MarkRanges MergeTreeDataSelectExecutor::filterMarksUsingIndex(
     VectorSimilarityIndexCache * vector_similarity_index_cache,
     LoggerPtr log)
 {
+    INSTRUMENT_FUNCTION()
+
     if (!index_helper->getDeserializedFormat(part->getDataPartStorage(), index_helper->getFileName()))
     {
         LOG_DEBUG(log, "File for index {} does not exist ({}.*). Skipping it.", backQuote(index_helper->index.name),

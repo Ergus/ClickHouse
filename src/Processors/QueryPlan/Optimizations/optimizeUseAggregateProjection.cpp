@@ -28,6 +28,8 @@
 #include <Storages/MergeTree/MergeTreeDataSelectExecutor.h>
 #include <Storages/ProjectionsDescription.h>
 
+#include <Profiler.hpp>
+
 namespace DB
 {
 namespace Setting
@@ -468,6 +470,8 @@ static constexpr const char * EXACT_COUNT_PROJECTION_NAME = "_exact_count_projec
 
 std::optional<String> optimizeUseAggregateProjections(QueryPlan::Node & node, QueryPlan::Nodes & nodes, bool allow_implicit_projections)
 {
+    INSTRUMENT_FUNCTION()
+
     if (node.children.size() != 1)
         return {};
 
@@ -489,6 +493,7 @@ std::optional<String> optimizeUseAggregateProjections(QueryPlan::Node & node, Qu
     if (!canUseProjectionForReadingStep(reading))
         return {};
 
+    INSTRUMENT_FUNCTION_UPDATE(2)
     PartitionIdToMaxBlockPtr max_added_blocks = getMaxAddedBlocks(reading);
 
     auto candidates = getAggregateProjectionCandidates(node, *aggregating, *reading, max_added_blocks, allow_implicit_projections);
@@ -506,10 +511,12 @@ std::optional<String> optimizeUseAggregateProjections(QueryPlan::Node & node, Qu
     ReadFromMergeTree::AnalysisResultPtr inexact_ranges_select_result;
     if (candidates.minmax_projection)
     {
+        INSTRUMENT_FUNCTION_UPDATE(3)
         best_candidate = &candidates.minmax_projection->candidate;
     }
     else if (!candidates.real.empty() || !candidates.only_count_column.empty())
     {
+        INSTRUMENT_FUNCTION_UPDATE(4)
         parent_reading_select_result = reading->getAnalyzedResult();
         bool find_exact_ranges = !candidates.only_count_column.empty();
         if (!parent_reading_select_result || (!parent_reading_select_result->has_exact_ranges && find_exact_ranges))
@@ -538,6 +545,7 @@ std::optional<String> optimizeUseAggregateProjections(QueryPlan::Node & node, Qu
 
             for (auto & part_with_ranges : parent_parts_with_ranges)
             {
+                INSTRUMENT_FUNCTION_UPDATE(5)
                 MarkRanges new_ranges;
                 auto & ranges = part_with_ranges.ranges;
                 const auto & exact_ranges = part_with_ranges.exact_ranges;
@@ -723,6 +731,7 @@ std::optional<String> optimizeUseAggregateProjections(QueryPlan::Node & node, Qu
     /// Add reading from projection step.
     if (candidates.minmax_projection)
     {
+        INSTRUMENT_FUNCTION_UPDATE(8)
         Pipe pipe(std::make_shared<SourceFromSingleChunk>(std::move(candidates.minmax_projection->block)));
         projection_reading = std::make_unique<ReadFromPreparedSource>(std::move(pipe));
         has_parent_parts = false;
@@ -730,6 +739,7 @@ std::optional<String> optimizeUseAggregateProjections(QueryPlan::Node & node, Qu
     else if (best_candidate == nullptr)
     {
         /// Exact count optimization.
+        INSTRUMENT_FUNCTION_UPDATE(9)
         chassert(exact_count > 0);
         chassert(inexact_ranges_select_result);
 
@@ -759,6 +769,7 @@ std::optional<String> optimizeUseAggregateProjections(QueryPlan::Node & node, Qu
     }
     else
     {
+        INSTRUMENT_FUNCTION_UPDATE(10)
         chassert(parent_reading_select_result);
         auto storage_snapshot = reading->getStorageSnapshot();
         auto proj_snapshot = std::make_shared<StorageSnapshot>(storage_snapshot->storage, best_candidate->projection->metadata);
@@ -793,6 +804,7 @@ std::optional<String> optimizeUseAggregateProjections(QueryPlan::Node & node, Qu
 
     if (!query_info.is_internal && context->hasQueryContext())
     {
+        INSTRUMENT_FUNCTION_UPDATE(10)
         context->getQueryContext()->addQueryAccessInfo(Context::QualifiedProjectionName
         {
             .storage_id = reading->getMergeTreeData().getStorageID(),
@@ -800,6 +812,7 @@ std::optional<String> optimizeUseAggregateProjections(QueryPlan::Node & node, Qu
         });
     }
 
+    INSTRUMENT_FUNCTION_UPDATE(11)
     projection_reading->setStepDescription(selected_projection_name);
     auto & projection_reading_node = nodes.emplace_back(QueryPlan::Node{.step = std::move(projection_reading)});
 
@@ -808,6 +821,7 @@ std::optional<String> optimizeUseAggregateProjections(QueryPlan::Node & node, Qu
 
     if (best_candidate)
     {
+        INSTRUMENT_FUNCTION_UPDATE(12)
         aggregate_projection_node = &nodes.emplace_back();
 
         if (candidates.has_filter)
@@ -837,6 +851,7 @@ std::optional<String> optimizeUseAggregateProjections(QueryPlan::Node & node, Qu
     }
     else
     {
+        INSTRUMENT_FUNCTION_UPDATE(13)
         /// All parts are taken from projection
         aggregating->requestOnlyMergeForAggregateProjection(aggregate_projection_node->step->getOutputHeader());
         node.children.front() = aggregate_projection_node;

@@ -8,6 +8,8 @@
 
 #include <stack>
 
+#include <Profiler.hpp>
+
 namespace DB
 {
 
@@ -122,6 +124,8 @@ void optimizeTreeFirstPass(const QueryPlanOptimizationSettings & optimization_se
 void optimizeTreeSecondPass(
     const QueryPlanOptimizationSettings & optimization_settings, QueryPlan::Node & root, QueryPlan::Nodes & nodes, QueryPlan & query_plan)
 {
+    INSTRUMENT_FUNCTION()
+
     const size_t max_optimizations_to_apply = optimization_settings.max_optimizations_to_apply;
     std::unordered_set<String> applied_projection_names;
     bool has_reading_from_mt = false;
@@ -131,6 +135,7 @@ void optimizeTreeSecondPass(
 
     while (!stack.empty())
     {
+        INSTRUMENT_FUNCTION_UPDATE(2, "while1")
         optimizePrimaryKeyConditionAndLimit(stack);
 
         updateQueryConditionCache(stack, optimization_settings);
@@ -159,6 +164,7 @@ void optimizeTreeSecondPass(
     stack.push_back({.node = &root});
     while (!stack.empty())
     {
+        INSTRUMENT_FUNCTION_UPDATE(3, "while2")
         auto & frame = stack.back();
 
         if (frame.next_child == 0)
@@ -229,6 +235,7 @@ void optimizeTreeSecondPass(
 
     while (!stack.empty())
     {
+        INSTRUMENT_FUNCTION_UPDATE(4, "while3")
         {
             /// NOTE: frame cannot be safely used after stack was modified.
             auto & frame = stack.back();
@@ -293,6 +300,7 @@ void optimizeTreeSecondPass(
         stack.push_back({.node = &root});
         while (!stack.empty())
         {
+            INSTRUMENT_FUNCTION_UPDATE(5, "while4")
             auto & frame = stack.back();
 
             if (frame.next_child == 0)

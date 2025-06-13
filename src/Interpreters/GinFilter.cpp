@@ -13,6 +13,8 @@
 #include <Storages/MergeTree/MergeTreeIndexGin.h>
 #include <city.h>
 
+#include <Profiler.hpp>
+
 namespace DB
 {
 
@@ -37,6 +39,7 @@ GinFilter::GinFilter(const GinFilterParameters & params_)
 
 void GinFilter::add(const char * data, size_t len, UInt32 rowID, GinIndexStorePtr & store) const
 {
+    INSTRUMENT_FUNCTION("GinFilter::add")
     if (len > FST::MAX_TERM_LENGTH)
         return;
 
@@ -61,6 +64,7 @@ void GinFilter::add(const char * data, size_t len, UInt32 rowID, GinIndexStorePt
 /// digested sequentially and segments are created sequentially too.
 void GinFilter::addRowRangeToGinFilter(UInt32 segmentID, UInt32 rowIDStart, UInt32 rowIDEnd)
 {
+    INSTRUMENT_FUNCTION("GinFilter::addRowRangeToGinFilter")
     /// check segment ids are monotonic increasing
     assert(rowid_ranges.empty() || rowid_ranges.back().segment_id <= segmentID);
 
@@ -81,6 +85,8 @@ void GinFilter::addRowRangeToGinFilter(UInt32 segmentID, UInt32 rowIDStart, UInt
 
 void GinFilter::clear()
 {
+    INSTRUMENT_FUNCTION("GinFilter::clear")
+
     query_string.clear();
     terms.clear();
     rowid_ranges.clear();
@@ -92,6 +98,8 @@ namespace
 /// Helper method for checking if postings list cache is empty
 bool hasEmptyPostingsList(const GinPostingsCache & postings_cache)
 {
+    INSTRUMENT_FUNCTION("GinFilter::hasEmptyPostingsList")
+
     if (postings_cache.empty())
         return true;
 
@@ -112,6 +120,8 @@ bool hasAlwaysMatchFlag(const GinIndexPostingsList & posting_bitset)
 /// Helper method to check if all terms in postings list cache has intersection with given row ID range
 bool matchAllInRange(const GinPostingsCache & postings_cache, UInt32 segment_id, UInt32 range_start, UInt32 range_end)
 {
+    INSTRUMENT_FUNCTION("GinFilter::matchInRange")
+
     /// Check for each term
     GinIndexPostingsList range_bitset;
     range_bitset.addRange(range_start, range_end + 1);
@@ -171,6 +181,8 @@ bool matchAnyInRange(const GinPostingsCache & postings_cache, UInt32 segment_id,
 template <GinSearchMode search_mode>
 bool matchInRange(const GinSegmentWithRowIdRangeVector & rowid_ranges, const GinPostingsCache & postings_cache)
 {
+    INSTRUMENT_FUNCTION("GinFilter::match")
+
     if (hasEmptyPostingsList(postings_cache))
         switch (search_mode)
         {
@@ -206,17 +218,23 @@ bool matchInRange(const GinSegmentWithRowIdRangeVector & rowid_ranges, const Gin
 
 bool GinFilter::contains(const GinFilter & filter, PostingsCacheForStore & cache_store, GinSearchMode search_mode) const
 {
+    INSTRUMENT_FUNCTION("GinFilter::contains")
+
     if (filter.getTerms().empty())
         return true;
 
+    INSTRUMENT_FUNCTION_UPDATE(2, "getPostings")
     GinPostingsCachePtr postings_cache = cache_store.getPostings(filter.getQueryString());
     if (postings_cache == nullptr)
     {
+        INSTRUMENT_FUNCTION_UPDATE(3, "createPostingsCacheFromTerms")
+
         GinIndexStoreDeserializer reader(cache_store.store);
         postings_cache = reader.createPostingsCacheFromTerms(filter.getTerms());
         cache_store.cache[filter.getQueryString()] = postings_cache;
     }
 
+    INSTRUMENT_FUNCTION_UPDATE(4, "match")
     switch (search_mode)
     {
         case GinSearchMode::Any:

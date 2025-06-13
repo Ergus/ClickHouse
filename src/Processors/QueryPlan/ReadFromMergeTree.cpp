@@ -61,6 +61,8 @@
 
 #include "config.h"
 
+#include <Profiler.hpp>
+
 using namespace DB;
 
 namespace
@@ -1911,6 +1913,8 @@ ReadFromMergeTree::AnalysisResultPtr ReadFromMergeTree::selectRangesToRead(
     std::optional<Indexes> & indexes,
     bool find_exact_ranges)
 {
+    INSTRUMENT_FUNCTION()
+
     AnalysisResult result;
     const auto & settings = context_->getSettingsRef();
 
