@@ -193,7 +193,6 @@ UInt32 GinIndexStore::getNextSegmentIDRange(size_t n)
     INSTRUMENT_FUNCTION("GinIndexStore::getNextSegmentIDRange")
 
     std::lock_guard guard(mutex);
-    INSTRUMENT_FUNCTION_UPDATE(2, "locked")
 
     if (next_available_segment_id == 0)
         initSegmentId();
@@ -421,7 +420,7 @@ void GinIndexStoreDeserializer::initFileStreams()
 }
 void GinIndexStoreDeserializer::readSegments()
 {
-    INSTRUMENT_FUNCTION("GinIndexStoreDeserializer::initFileStreams")
+    INSTRUMENT_FUNCTION("GinIndexStoreDeserializer::readSegments")
 
     UInt32 num_segments = store->getNumOfSegments();
     if (num_segments == 0)
@@ -469,6 +468,7 @@ void GinIndexStoreDeserializer::readSegmentDictionary(UInt32 segment_id)
     /// Read FST size
     size_t fst_size = 0;
     readVarUInt(fst_size, *dict_file_stream);
+    
 
     /// Read FST blob
     it->second->offsets.getData().resize(fst_size);
@@ -544,9 +544,7 @@ GinIndexStorePtr GinIndexStoreFactory::get(const String & name, DataPartStorageP
     const String & part_path = storage->getRelativePath();
     String key = name + ":" + part_path;
 
-    INSTRUMENT_FUNCTION_UPDATE(2, "get_lockin")
     std::lock_guard lock(mutex);
-    INSTRUMENT_FUNCTION_UPDATE(3, "get_locked")
 
     GinIndexStores::const_iterator it = stores.find(key);
 
