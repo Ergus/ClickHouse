@@ -21,6 +21,8 @@
 #endif
 
 
+#include <Profiler.hpp>
+
 namespace DB
 {
 
@@ -83,6 +85,8 @@ void SerializationString::serializeBinary(const IColumn & column, size_t row_num
 
 void SerializationString::deserializeBinary(IColumn & column, ReadBuffer & istr, const FormatSettings & settings) const
 {
+    INSTRUMENT_FUNCTION("SerializationString::deserializeBinary")
+
     ColumnString & column_string = assert_cast<ColumnString &>(column);
     ColumnString::Chars & data = column_string.getChars();
     ColumnString::Offsets & offsets = column_string.getOffsets();
@@ -118,6 +122,7 @@ void SerializationString::deserializeBinary(IColumn & column, ReadBuffer & istr,
 
 void SerializationString::serializeBinaryBulk(const IColumn & column, WriteBuffer & ostr, size_t offset, size_t limit) const
 {
+    INSTRUMENT_FUNCTION("SerializationString::serializeBinaryBulk")
     const ColumnString & column_string = typeid_cast<const ColumnString &>(column);
     const ColumnString::Chars & data = column_string.getChars();
     const ColumnString::Offsets & offsets = column_string.getOffsets();
@@ -150,6 +155,9 @@ void SerializationString::serializeBinaryBulk(const IColumn & column, WriteBuffe
 template <int UNROLL_TIMES>
 static NO_INLINE void deserializeBinarySSE2(ColumnString::Chars & data, ColumnString::Offsets & offsets, ReadBuffer & istr, size_t limit)
 {
+
+    INSTRUMENT_FUNCTION(__PRETTY_FUNCTION__)
+
     size_t offset = data.size();
     /// Avoiding calling resize in a loop improves the performance.
     data.resize(std::max(data.capacity(), static_cast<size_t>(4096)));

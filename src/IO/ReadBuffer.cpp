@@ -2,6 +2,8 @@
 #include <IO/ReadBuffer.h>
 #include <IO/ReadBufferWrapperBase.h>
 
+#include <Profiler.hpp>
+
 namespace DB
 {
 
@@ -44,6 +46,7 @@ namespace
 
 void ReadBuffer::readStrict(char * to, size_t n)
 {
+    INSTRUMENT_FUNCTION("ReadBuffer::readStrict")
     auto read_bytes = read(to, n);
     if (n != read_bytes)
         throw Exception(ErrorCodes::CANNOT_READ_ALL_DATA,

@@ -11,6 +11,8 @@
 #include <Storages/MergeTree/MarkRange.h>
 #include <Processors/Merges/Algorithms/ReplacingSortedAlgorithm.h>
 
+#include <Profiler.hpp>
+
 namespace ProfileEvents
 {
     extern const Event FilterTransformPassedRows;
@@ -127,6 +129,7 @@ void FilterTransform::removeFilterIfNeed(Columns & columns) const
 
 void FilterTransform::transform(Chunk & chunk)
 {
+    INSTRUMENT_FUNCTION("FilterTransform::transform")
     auto chunk_rows_before = chunk.getNumRows();
     doTransform(chunk);
     if (rows_filtered)

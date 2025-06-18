@@ -4,6 +4,7 @@
 #include <Common/StringSearcher.h>
 #include <Core/ColumnNumbers.h>
 
+#include <Profiler.hpp>
 
 namespace DB
 {
@@ -38,6 +39,8 @@ struct HasTokenImpl
         ColumnUInt8 * res_null,
         size_t input_rows_count)
     {
+        INSTRUMENT_FUNCTION(__PRETTY_FUNCTION__)
+
         if (start_pos != nullptr)
             throw Exception(ErrorCodes::ILLEGAL_TYPE_OF_ARGUMENT, "Function '{}' does not support start_pos argument", name);
 
