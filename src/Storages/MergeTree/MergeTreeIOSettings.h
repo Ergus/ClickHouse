@@ -60,7 +60,7 @@ struct MergeTreeReaderSettings
     bool use_deserialization_prefixes_cache = false;
     bool use_prefixes_deserialization_thread_pool = false;
 
-    static MergeTreeReaderSettings Create(const ContextPtr & context, const SelectQueryInfo & query_info);
+    static MergeTreeReaderSettings create(const ContextPtr & context, const SelectQueryInfo & query_info);
 };
 
 struct MergeTreeWriterSettings

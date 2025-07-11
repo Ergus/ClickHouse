@@ -76,7 +76,7 @@ MergeTreeWriterSettings::MergeTreeWriterSettings(
 {
 }
 
-MergeTreeReaderSettings MergeTreeReaderSettings::Create(const ContextPtr & context, const SelectQueryInfo & query_info)
+MergeTreeReaderSettings MergeTreeReaderSettings::create(const ContextPtr & context, const SelectQueryInfo & query_info)
 {
     const auto & settings = context->getSettingsRef();
     return {
