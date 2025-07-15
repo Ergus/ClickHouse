@@ -18,6 +18,8 @@
 #include <unordered_map>
 #include <algorithm>
 
+#include <Profiler.hpp>
+
 namespace DB
 {
 
@@ -446,6 +448,7 @@ GinIndexStoreDeserializer::GinIndexStoreDeserializer(const GinIndexStorePtr & st
 
 void GinIndexStoreDeserializer::initFileStreams()
 {
+    INSTRUMENT_FUNCTION()
     String metadata_file_name = store->getName() + GinIndexStore::GIN_SEGMENT_METADATA_FILE_TYPE;
     String dict_file_name = store->getName() + GinIndexStore::GIN_DICTIONARY_FILE_TYPE;
     String postings_file_name = store->getName() + GinIndexStore::GIN_POSTINGS_FILE_TYPE;
@@ -456,6 +459,7 @@ void GinIndexStoreDeserializer::initFileStreams()
 }
 void GinIndexStoreDeserializer::readSegments()
 {
+    INSTRUMENT_FUNCTION()
     UInt32 num_segments = store->getNumOfSegments();
     if (num_segments == 0)
         return;
@@ -484,6 +488,7 @@ void GinIndexStoreDeserializer::readSegmentDictionaries()
 
 void GinIndexStoreDeserializer::readSegmentDictionary(UInt32 segment_id)
 {
+    INSTRUMENT_FUNCTION()
     /// Check validity of segment_id
     auto it = store->segment_dictionaries.find(segment_id);
     if (it == store->segment_dictionaries.end())
@@ -540,11 +545,13 @@ void GinIndexStoreDeserializer::readSegmentDictionary(UInt32 segment_id)
 
 GinSegmentedPostingsListContainer GinIndexStoreDeserializer::readSegmentedPostingsLists(const String & term)
 {
+    INSTRUMENT_FUNCTION()
     assert(postings_file_stream != nullptr);
 
     GinSegmentedPostingsListContainer container;
     for (auto const & seg_dict : store->segment_dictionaries)
     {
+        INSTRUMENT_FUNCTION_UPDATE(2, "Loop")
         auto segment_id = seg_dict.first;
 
         auto [offset, found] = seg_dict.second->offsets.getOutput(term);
@@ -563,9 +570,11 @@ GinSegmentedPostingsListContainer GinIndexStoreDeserializer::readSegmentedPostin
 
 GinPostingsCachePtr GinIndexStoreDeserializer::createPostingsCacheFromTerms(const std::vector<String> & terms)
 {
+    INSTRUMENT_FUNCTION()
     auto postings_cache = std::make_shared<GinPostingsCache>();
     for (const auto & term : terms)
     {
+        INSTRUMENT_FUNCTION_UPDATE(2, "Loop")
         // Make sure don't read for duplicated terms
         if (postings_cache->find(term) != postings_cache->end())
             continue;
@@ -585,6 +594,7 @@ PostingsCacheForStore::PostingsCacheForStore(const String & name, DataPartStorag
 
 GinPostingsCachePtr PostingsCacheForStore::getCachedPostings(const GinFilter & filter) const
 {
+    INSTRUMENT_FUNCTION()
     if (auto it = cache.find(filter.getQueryString()); it != cache.end())
         return it->second;
 
@@ -593,11 +603,16 @@ GinPostingsCachePtr PostingsCacheForStore::getCachedPostings(const GinFilter & f
 
 GinPostingsCachePtr PostingsCacheForStore::getPostings(const GinFilter & filter) const
 {
+    INSTRUMENT_FUNCTION()
     if (auto cached_posting = this->getCachedPostings(filter))
         return cached_posting;
 
     GinIndexStoreDeserializer reader(store);
+
+    INSTRUMENT_FUNCTION_UPDATE(3, "createPostingsCacheFromTerms")
     GinPostingsCachePtr postings_cache = reader.createPostingsCacheFromTerms(filter.getTerms());
+
+    INSTRUMENT_FUNCTION_UPDATE(4, "emplace")
     const auto [place, inserted] = cache.emplace(filter.getQueryString(), std::move(postings_cache));
     chassert(inserted);
 
@@ -612,6 +627,7 @@ GinIndexStoreFactory & GinIndexStoreFactory::instance()
 
 GinIndexStorePtr GinIndexStoreFactory::get(const String & name, DataPartStoragePtr storage)
 {
+    INSTRUMENT_FUNCTION()
     const String & part_path = storage->getRelativePath();
     String key = name + ":" + part_path;
 

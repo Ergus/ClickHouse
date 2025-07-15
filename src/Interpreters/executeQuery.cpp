@@ -87,6 +87,8 @@
 
 #include <boost/algorithm/string/predicate.hpp>
 
+#include <Profiler.hpp>
+
 namespace ProfileEvents
 {
     extern const Event Query;
@@ -1759,6 +1761,7 @@ std::pair<ASTPtr, BlockIO> executeQuery(
     QueryFlags flags,
     QueryProcessingStage::Enum stage)
 {
+	INSTRUMENT_FUNCTION()
     ProfileEvents::checkCPUOverload(context->getServerSettings()[ServerSetting::os_cpu_busy_time_threshold],
             context->getSettingsRef()[Setting::min_os_cpu_wait_time_ratio_to_throw],
             context->getSettingsRef()[Setting::max_os_cpu_wait_time_ratio_to_throw],
@@ -1791,6 +1794,7 @@ void executeQuery(
     HandleExceptionInOutputFormatFunc handle_exception_in_output_format,
     QueryFinishCallback query_finish_callback)
 {
+	INSTRUMENT_FUNCTION()
     PODArray<char> parse_buf;
     const char * begin;
     const char * end;

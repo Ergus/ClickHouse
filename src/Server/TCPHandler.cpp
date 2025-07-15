@@ -86,6 +86,8 @@
 #include <fmt/ostream.h>
 #include <Common/StringUtils.h>
 
+#include <Profiler.hpp>
+
 using namespace std::literals;
 using namespace DB;
 
@@ -342,6 +344,8 @@ TCPHandler::~TCPHandler() = default;
 
 void TCPHandler::runImpl()
 {
+	INSTRUMENT_FUNCTION("TCPHandler::runImpl")
+
     setThreadName("TCPHandler");
 
     extractConnectionSettingsFromContext(server.context());

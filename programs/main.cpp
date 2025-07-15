@@ -23,6 +23,8 @@
 #include <utility> /// pair
 #include <vector>
 
+#include <Profiler.hpp>
+
 /// Universal executable for various clickhouse applications
 int mainEntryClickHouseBenchmark(int argc, char ** argv);
 int mainEntryClickHouseCheckMarks(int argc, char ** argv);
@@ -266,6 +268,7 @@ bool inside_main = false;
 
 int main(int argc_, char ** argv_)
 {
+	INSTRUMENT_FUNCTION()
     inside_main = true;
     SCOPE_EXIT({ inside_main = false; });
 

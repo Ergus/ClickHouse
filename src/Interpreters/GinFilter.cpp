@@ -14,6 +14,8 @@
 #include <Storages/MergeTree/MarkRange.h>
 #include <city.h>
 
+#include <Profiler.hpp>
+
 namespace DB
 {
 
@@ -38,6 +40,8 @@ GinFilter::GinFilter(const GinFilterParameters & params_)
 
 void GinFilter::add(const char * data, size_t len, UInt32 rowID, GinIndexStorePtr & store) const
 {
+	INSTRUMENT_FUNCTION()
+
     if (len > FST::MAX_TERM_LENGTH)
         return;
 
@@ -62,6 +66,8 @@ void GinFilter::add(const char * data, size_t len, UInt32 rowID, GinIndexStorePt
 /// digested sequentially and segments are created sequentially too.
 void GinFilter::addRowRangeToGinFilter(UInt32 segmentID, UInt32 rowIDStart, UInt32 rowIDEnd)
 {
+	INSTRUMENT_FUNCTION()
+
     /// check segment ids are monotonic increasing
     assert(rowid_ranges.empty() || rowid_ranges.back().segment_id <= segmentID);
 
@@ -93,6 +99,8 @@ namespace
 /// Helper method for checking if postings list cache is empty
 bool hasEmptyPostingsList(const GinPostingsCache & postings_cache)
 {
+	INSTRUMENT_FUNCTION()
+
     if (postings_cache.empty())
         return true;
 
@@ -113,6 +121,8 @@ bool hasAlwaysMatchFlag(const GinIndexPostingsList & posting_bitset)
 /// Helper method to check if all terms in postings list cache has intersection with given row ID range
 bool matchAllInRange(const GinPostingsCache & postings_cache, UInt32 segment_id, UInt32 range_start, UInt32 range_end)
 {
+	INSTRUMENT_FUNCTION()
+
     /// Check for each term
     GinIndexPostingsList range_bitset;
     range_bitset.addRange(range_start, range_end + 1);
@@ -145,6 +155,8 @@ bool matchAllInRange(const GinPostingsCache & postings_cache, UInt32 segment_id,
 /// Helper method to check if any term in postings list cache has intersection with given row ID range
 bool matchAnyInRange(const GinPostingsCache & postings_cache, UInt32 segment_id, UInt32 range_start, UInt32 range_end)
 {
+	INSTRUMENT_FUNCTION()
+
     /// Check for each term
     GinIndexPostingsList postings_bitset;
     for (const auto & term_postings : postings_cache)
@@ -207,6 +219,8 @@ bool matchInRange(const GinSegmentWithRowIdRangeVector & rowid_ranges, const Gin
 
 bool GinFilter::contains(const GinFilter & filter, PostingsCacheForStore & cache_store, GinSearchMode search_mode) const
 {
+	INSTRUMENT_FUNCTION()
+
     if (filter.getTerms().empty())
         return true;
 
@@ -227,6 +241,7 @@ std::vector<uint32_t> GinFilter::getIndices(
     const PostingsCacheForStore *cache_store,
     const MarkRanges &ranges) const
 {
+	INSTRUMENT_FUNCTION()
     chassert(ranges.size() > 0);
 
     if (filter->getTerms().empty())

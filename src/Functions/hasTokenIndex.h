@@ -31,6 +31,8 @@
 #include <print>
 #include <algorithm>
 
+#include <Profiler.hpp>
+
 namespace DB
 {
 
@@ -110,11 +112,13 @@ class FunctionIndex : public IFunction
         const ColumnVector<UInt64> * col_part_offset_vector,
         PaddedPODArray<typename Impl::ResultType> & result)
     {
+        INSTRUMENT_FUNCTION("postingArrayToOutput")
         const PaddedPODArray<UInt64> &offsets = col_part_offset_vector->getData();
 
         const UInt64 *it = std::lower_bound(offsets.begin(), offsets.end(), matching_rows.front() - 1);
         const UInt64 *end_it = std::upper_bound(it, offsets.end(), matching_rows.back());
 
+        INSTRUMENT_FUNCTION_UPDATE(3, "Loop")
         for (uint32_t row : matching_rows)
         {
             const size_t match_offset = row - 1;
@@ -163,6 +167,7 @@ public:
 
     ColumnPtr executeImpl(const ColumnsWithTypeAndName & arguments, const DataTypePtr &, size_t input_rows_count) const override
     {
+        INSTRUMENT_FUNCTION("hasTokenIndex")
         // Early exits
         if (arguments.size() != getNumberOfArguments())
             throw Exception(ErrorCodes::BAD_ARGUMENTS, "Function {} expects at least 2 arguments", getName());
@@ -229,6 +234,7 @@ public:
         MarkRanges index_ranges;
         std::map<size_t, MarkRanges> ranges_map;
 
+        INSTRUMENT_FUNCTION_UPDATE(2, "LoopInit")
         for (const auto & range : part_info.ranges)
         {
             /// For the reader
@@ -277,6 +283,7 @@ public:
 
         for ( const auto &[index_mark, subranges] : ranges_map)
         {
+            INSTRUMENT_FUNCTION_UPDATE(3, "Read")
             MergeTreeIndexGranulePtr granule = nullptr;
             reader.read(index_mark, granule);
 
@@ -284,9 +291,11 @@ public:
             if (!granule_gin)
                 throw Exception(ErrorCodes::LOGICAL_ERROR, "GinFilter index condition got a granule with the wrong type.");
 
+            INSTRUMENT_FUNCTION_UPDATE(4, "getIndices")
             const std::vector<uint32_t> matching_rows
                 = granule_gin->gin_filter.getIndices(filter.get(), cache_in_store.get(), subranges);
 
+            INSTRUMENT_FUNCTION_UPDATE(5, "postingArrayToOutput")
             postingArrayToOutput(matching_rows, col_part_offset_vector, col_res->getData());
         }
 
