@@ -28,6 +28,8 @@
 #include <iterator>
 #include <print>
 
+#include <Profiler.hpp>
+
 namespace DB
 {
 
@@ -128,6 +130,8 @@ public:
 
     ColumnPtr executeImpl(const ColumnsWithTypeAndName & arguments, const DataTypePtr &, size_t input_rows_count) const override
     {
+        INSTRUMENT_FUNCTION("hasTokenIndex")
+
         if (arguments.size() != getNumberOfArguments())
             throw Exception(ErrorCodes::BAD_ARGUMENTS, "Function {} expects at least 2 arguments", getName());
 
@@ -254,7 +258,10 @@ public:
                     continue;
 
                 if (index_mark != irange.begin || !granule || last_index_mark != irange.begin)
+                {
+                    INSTRUMENT_FUNCTION_UPDATE(3, "granule_read")
                     reader.read(index_mark, granule);
+                }
 
                 const MergeTreeIndexGranuleGinPtr granule_gin = std::dynamic_pointer_cast<MergeTreeIndexGranuleGin>(granule);
                 if (!granule_gin)

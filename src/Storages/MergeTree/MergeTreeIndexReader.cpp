@@ -3,6 +3,8 @@
 #include <Storages/MergeTree/LoadedMergeTreeDataPartInfoForReader.h>
 #include <Storages/MergeTree/VectorSimilarityIndexCache.h>
 
+#include <Profiler.hpp>
+
 namespace
 {
 
@@ -92,6 +94,7 @@ void MergeTreeIndexReader::initStreamIfNeeded()
 
 void MergeTreeIndexReader::read(size_t mark, MergeTreeIndexGranulePtr & granule)
 {
+	INSTRUMENT_FUNCTION()
     auto load_func = [this, mark](auto & res)
     {
         initStreamIfNeeded();
