@@ -214,6 +214,7 @@ public:
         }
 
         //PostingsCacheForStore cache_in_store(index_helper->getFileName(), part->getDataPartStoragePtr());
+		INSTRUMENT_FUNCTION_UPDATE(2, "cache_in_store")
         auto [cache_in_store, cache_in_store_mutex] = context->getPostingsCacheForStore(part_idx, index_name);
         chassert(cache_in_store);
 
@@ -267,8 +268,10 @@ public:
                 if (!granule_gin)
                     throw Exception(ErrorCodes::LOGICAL_ERROR, "GinFilter index condition got a granule with the wrong type.");
 
+                INSTRUMENT_FUNCTION_UPDATE(4, "get_indices")
                 const std::vector<uint32_t> matching_rows = granule_gin->gin_filter.getIndices(filter.get(), cache_in_store.get());
 
+                INSTRUMENT_FUNCTION_UPDATE(5, "vector_fill")
                 /// col_part_offset_vector may have some "holes" but will be always strictly increasing, so in the worst case the distance
                 /// to the next mark start will be smaller or equal to mark_size.
                 /// If we detect a performance issue here, then we could use bisection as the array is sorted and the boundaries are
