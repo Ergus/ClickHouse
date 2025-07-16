@@ -289,8 +289,6 @@ std::vector<uint32_t> GinFilter::getIndices(const GinFilter *filter, const Posti
 	INSTRUMENT_FUNCTION_UPDATE(7, "toUint32Array")
     range_bitset.toUint32Array(indices.data());
 
-	INSTRUMENT_FUNCTION_UPDATE(7, "toUint32Array")
-
     return indices;
 }
 
