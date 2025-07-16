@@ -242,16 +242,19 @@ std::vector<uint32_t> GinFilter::getIndices(const GinFilter *filter, const Posti
     if (filter->getTerms().empty())
         return {};
 
+	INSTRUMENT_FUNCTION_UPDATE(2, "get_postings")
     const GinPostingsCachePtr postings_cache = cache_store->getCachedPostings(*filter);
 
     GinIndexPostingsList range_bitset;
 
     for (const GinSegmentWithRowIdRange &range : rowid_ranges)
     {
+		INSTRUMENT_FUNCTION_UPDATE(3, "add_range")
         range_bitset.addRange(range.range_start, range.range_end + 1);
 
         for (const auto & term_postings : *postings_cache)
         {
+			INSTRUMENT_FUNCTION_UPDATE(4, "for_postings")
             /// Check if it is in the same segment by searching for segment_id
             const GinSegmentedPostingsListContainer & container = term_postings.second;
             auto container_it = container.find(range.segment_id);
@@ -273,15 +276,20 @@ std::vector<uint32_t> GinFilter::getIndices(const GinFilter *filter, const Posti
                 break;
             }
 
+			INSTRUMENT_FUNCTION_UPDATE(5, "operator")
             range_bitset &= *container_it->second;
         }
     }
 
+	INSTRUMENT_FUNCTION_UPDATE(6, "cardinality")
     const size_t cardinality = range_bitset.cardinality();
     std::vector<uint32_t> indices;
     indices.resize(cardinality);
 
+	INSTRUMENT_FUNCTION_UPDATE(7, "toUint32Array")
     range_bitset.toUint32Array(indices.data());
+
+	INSTRUMENT_FUNCTION_UPDATE(7, "toUint32Array")
 
     return indices;
 }

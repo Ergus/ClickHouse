@@ -18,6 +18,8 @@
 #include <unordered_map>
 #include <algorithm>
 
+#include <Profiler.hpp>
+
 namespace DB
 {
 
@@ -585,6 +587,7 @@ PostingsCacheForStore::PostingsCacheForStore(const String & name, DataPartStorag
 
 GinPostingsCachePtr PostingsCacheForStore::getCachedPostings(const GinFilter & filter) const
 {
+	INSTRUMENT_FUNCTION()
     if (auto it = cache.find(filter.getQueryString()); it != cache.end())
         return it->second;
 
@@ -593,11 +596,16 @@ GinPostingsCachePtr PostingsCacheForStore::getCachedPostings(const GinFilter & f
 
 GinPostingsCachePtr PostingsCacheForStore::getPostings(const GinFilter & filter) const
 {
+	INSTRUMENT_FUNCTION()
     if (auto cached_posting = this->getCachedPostings(filter))
         return cached_posting;
 
     GinIndexStoreDeserializer reader(store);
+
+	INSTRUMENT_FUNCTION_UPDATE(3, "createPostingsCacheFromTerms")
     GinPostingsCachePtr postings_cache = reader.createPostingsCacheFromTerms(filter.getTerms());
+
+	INSTRUMENT_FUNCTION_UPDATE(4, "emplace")
     const auto [place, inserted] = cache.emplace(filter.getQueryString(), std::move(postings_cache));
     chassert(inserted);
 
