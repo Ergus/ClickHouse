@@ -14,6 +14,8 @@
 #include <vector>
 #include <absl/container/flat_hash_map.h>
 
+#include <Profiler.hpp>
+
 /// GinIndexStore manages the Generalized Inverted Index ("gin") (text index) for a data part, and it is made up of one or more
 /// immutable index segments.
 ///
@@ -209,7 +211,7 @@ private:
 
     UInt32 cached_segment_num = 0;
 
-    std::mutex mutex;
+    profiler::mutex mutex;
 
     /// Not thread-safe, protected by mutex
     UInt32 next_available_segment_id = 0;
@@ -327,7 +329,7 @@ public:
 
 private:
     GinIndexStores stores;
-    std::mutex mutex;
+    profiler::mutex mutex;
 };
 
 bool isGinFile(const String & file_name);
