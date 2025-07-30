@@ -15,8 +15,8 @@
 #include <IO/WriteBufferFromVector.h>
 #include <IO/WriteHelpers.h>
 #include <vector>
-#include <unordered_map>
 #include <algorithm>
+#include <shared_mutex>
 
 #include <Profiler.hpp>
 
@@ -589,7 +589,7 @@ GinPostingsCachePtr GinIndexStoreDeserializer::createPostingsCacheFromTerms(cons
 PostingsCacheForStore::PostingsCacheForStore(const String & name, DataPartStoragePtr storage)
     :store(GinIndexStoreFactory::instance().get(name, storage))
 {
-    chassert(store);
+    chassert(store->exists());
 }
 
 GinPostingsCachePtr PostingsCacheForStore::getCachedPostings(const GinFilter & filter) const
@@ -626,29 +626,38 @@ GinIndexStoreFactory & GinIndexStoreFactory::instance()
 }
 
 GinIndexStorePtr GinIndexStoreFactory::get(const String & name, DataPartStoragePtr storage)
+
 {
     INSTRUMENT_FUNCTION()
     const String & part_path = storage->getRelativePath();
-    String key = name + ":" + part_path;
+    const String key = name + ":" + part_path;
 
-    std::lock_guard lock(mutex);
-    GinIndexStores::const_iterator it = stores.find(key);
-
-    if (it == stores.end())
+    auto [it, emplaced, lk] = [&] -> std::tuple<GinIndexStores::iterator, bool, std::unique_lock<std::mutex>>
     {
-        GinIndexStorePtr store = std::make_shared<GinIndexStore>(name, storage);
-        if (!store->exists())
-            return nullptr;
+        std::lock_guard lock(mutex);
+        auto [it1, emplaced1] = stores.try_emplace(key);
+        std::unique_lock<std::mutex> lk1(it1->second.cv_m);
+        return {it1, emplaced1, std::move(lk1)};
+    }();
 
+    if (!emplaced)
+    {
+        it->second.cv.wait(lk, [&it]{ return it->second.value; });
+        return it->second.value;
+    }
+
+    GinIndexStorePtr store = std::make_shared<GinIndexStore>(name, storage);
+    if (store->exists())
+    {
         GinIndexStoreDeserializer deserializer(store);
         deserializer.readSegments();
         deserializer.readSegmentDictionaries();
-
-        stores[key] = store;
-
-        return store;
+        it->second.value = store;
     }
-    return it->second;
+    lk.unlock();
+    it->second.cv.notify_all();
+
+    return store;
 }
 
 void GinIndexStoreFactory::remove(const String & part_path)

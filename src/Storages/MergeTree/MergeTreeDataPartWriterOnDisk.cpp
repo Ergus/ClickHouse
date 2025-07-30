@@ -227,7 +227,7 @@ void MergeTreeDataPartWriterOnDisk::cancel() noexcept
         stream->cancel();
 
     for (auto & store: gin_index_stores)
-        store.second->cancel();
+        store.second.value->cancel();
 }
 
 size_t MergeTreeDataPartWriterOnDisk::computeIndexGranularity(const Block & block) const
@@ -305,7 +305,7 @@ void MergeTreeDataPartWriterOnDisk::initSkipIndices()
         if (typeid_cast<const MergeTreeIndexGin *>(&*skip_index) != nullptr)
         {
             store = std::make_shared<GinIndexStore>(stream_name, data_part_storage, data_part_storage, (*storage_settings)[MergeTreeSetting::max_digestion_size_per_segment]);
-            gin_index_stores[stream_name] = store;
+            gin_index_stores[stream_name].value = store;
         }
 
         skip_indices_aggregators.push_back(skip_index->createIndexAggregatorForPart(store, settings));
@@ -387,7 +387,7 @@ void MergeTreeDataPartWriterOnDisk::calculateAndSerializeSkipIndices(const Block
             auto it = gin_index_stores.find(stream_name);
             if (it == gin_index_stores.end())
                 throw Exception(ErrorCodes::LOGICAL_ERROR, "Index '{}' does not exist", stream_name);
-            store = it->second;
+            store = it->second.value;
         }
 
         for (const auto & granule : granules_to_write)
@@ -545,7 +545,7 @@ void MergeTreeDataPartWriterOnDisk::finishSkipIndicesSerialization(bool sync)
     }
 
     for (auto & store: gin_index_stores)
-        store.second->finalize();
+        store.second.value->finalize();
 
     for (size_t i = 0; i < skip_indices.size(); ++i)
         LOG_DEBUG(log, "Spent {} ms calculating index {} for the part {}", execution_stats.skip_indices_build_us[i] / 1000, skip_indices[i]->index.name, data_part_name);

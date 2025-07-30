@@ -324,8 +324,15 @@ public:
     /// Remove all Gin index files which are under the same part_path
     void remove(const String & part_path);
 
+    struct GinIndexStorePtrWrap
+    {
+        std::condition_variable cv;
+        std::mutex cv_m;
+        GinIndexStorePtr value;
+    };
+
     /// GinIndexStores indexed by part file path
-    using GinIndexStores = std::unordered_map<std::string, GinIndexStorePtr>;
+    using GinIndexStores = std::unordered_map<std::string, GinIndexStorePtrWrap>;
 
 private:
     GinIndexStores stores;
