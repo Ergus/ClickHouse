@@ -8,6 +8,8 @@
 #include <Common/logger_useful.h>
 #include <Columns/ColumnsNumber.h>
 
+#include <Profiler.hpp>
+
 namespace ProfileEvents
 {
     extern const Event TextIndexReaderTotalMicroseconds;
@@ -39,6 +41,7 @@ MergeTreeReaderTextIndex::MergeTreeReaderTextIndex(
         main_reader_->settings)
     , index(std::move(index_))
 {
+    INSTRUMENT_FUNCTION()
     for (const auto & column : columns_)
     {
         if (!column.name.starts_with(TEXT_INDEX_VIRTUAL_COLUMN_PREFIX) || !WhichDataType(column.type).isUInt8())
@@ -72,12 +75,14 @@ MergeTreeReaderTextIndex::MergeTreeReaderTextIndex(
 
 void MergeTreeReaderTextIndex::updateAllMarkRanges(const MarkRanges & ranges)
 {
+    INSTRUMENT_FUNCTION("MergeTreeReaderTextIndex::updateAllMarkRanges")
     IMergeTreeReader::updateAllMarkRanges(ranges);
     updateAllIndexRanges();
 }
 
 void MergeTreeReaderTextIndex::updateAllIndexRanges()
 {
+    INSTRUMENT_FUNCTION("MergeTreeReaderTextIndex::updateAllIndexRanges")
     all_index_ranges.clear();
     size_t granularity = index.index->index.granularity;
 
@@ -99,6 +104,7 @@ void MergeTreeReaderTextIndex::updateAllIndexRanges()
 
 bool MergeTreeReaderTextIndex::canSkipMark(size_t mark, size_t current_task_last_mark)
 {
+    INSTRUMENT_FUNCTION("MergeTreeReaderTextIndex::canSkipMark")
     chassert(index_reader);
     ProfileEventTimeIncrement<Microseconds> watch(ProfileEvents::TextIndexReaderTotalMicroseconds);
 
@@ -136,6 +142,8 @@ size_t MergeTreeReaderTextIndex::readRows(
     size_t rows_offset,
     Columns & res_columns)
 {
+    INSTRUMENT_FUNCTION("MergeTreeReaderTextIndex::readRows")
+
     if (continue_reading)
         from_mark = current_mark;
 
@@ -170,6 +178,7 @@ size_t MergeTreeReaderTextIndex::readRows(
 
     while (read_rows < max_rows_to_read)
     {
+        INSTRUMENT_FUNCTION_UPDATE(2, "Loop")
         size_t index_mark = from_mark / granularity;
         size_t rows_to_read = data_part_info_for_read->getIndexGranularity().getMarkRows(from_mark);
 
@@ -181,6 +190,7 @@ size_t MergeTreeReaderTextIndex::readRows(
 
         if (!granule.may_be_true)
         {
+            INSTRUMENT_FUNCTION_UPDATE(3, "granule.may_be_true")
             for (const auto & column : res_columns)
             {
                 auto & column_data = assert_cast<ColumnUInt8 &>(column->assumeMutableRef()).getData();
@@ -189,19 +199,23 @@ size_t MergeTreeReaderTextIndex::readRows(
         }
         else
         {
+            INSTRUMENT_FUNCTION_UPDATE(4, "readPostingsIfNeeded")
             readPostingsIfNeeded(granule);
 
+            INSTRUMENT_FUNCTION_UPDATE(5, "granules_compute")
             const auto & index_granularity = data_part_info_for_read->getIndexGranularity();
             size_t mark_at_index_granule = index_mark * granularity;
             size_t granule_offset = index_granularity.getRowsCountInRange(mark_at_index_granule, from_mark);
 
             for (size_t i = 0; i < res_columns.size(); ++i)
             {
+                INSTRUMENT_FUNCTION_UPDATE(6, "fillColumn")
                 auto & column_mutable = res_columns[i]->assumeMutableRef();
                 fillColumn(column_mutable, granule, columns_to_read[i].name, granule_offset, rows_to_read);
             }
         }
 
+        INSTRUMENT_FUNCTION_UPDATE(7, "after_in_loop")
         ++from_mark;
         read_rows += rows_to_read;
         current_row += rows_to_read;
@@ -216,6 +230,7 @@ size_t MergeTreeReaderTextIndex::readRows(
 
 void MergeTreeReaderTextIndex::createEmptyColumns(Columns & columns) const
 {
+    INSTRUMENT_FUNCTION("MergeTreeReaderTextIndex::createEmptyColumns")
     for (size_t i = 0; i < columns.size(); ++i)
     {
         if (columns[i] == nullptr)
@@ -225,6 +240,8 @@ void MergeTreeReaderTextIndex::createEmptyColumns(Columns & columns) const
 
 void MergeTreeReaderTextIndex::readPostingsIfNeeded(Granule & granule)
 {
+    INSTRUMENT_FUNCTION("MergeTreeReaderTextIndex::readPostingsIfNeeded")
+
     if (!granule.need_read_postings)
         return;
 
@@ -349,6 +366,8 @@ void applyPostingsAll(
 
 void MergeTreeReaderTextIndex::fillColumn(IColumn & column, Granule & granule, const String & column_name, size_t granule_offset, size_t num_rows)
 {
+    INSTRUMENT_FUNCTION("MergeTreeReaderTextIndex::fillColumn")
+
     auto & column_data = assert_cast<ColumnUInt8 &>(column).getData();
     const auto & condition_text = assert_cast<const MergeTreeIndexConditionText &>(*index.condition);
     auto search_query = condition_text.getSearchQueryForVirtualColumn(column_name);

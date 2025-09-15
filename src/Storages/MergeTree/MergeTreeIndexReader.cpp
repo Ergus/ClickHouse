@@ -5,6 +5,8 @@
 #include <Storages/MergeTree/VectorSimilarityIndexCache.h>
 #include <Compression/CachedCompressedReadBuffer.h>
 
+#include <Profiler.hpp>
+
 namespace
 {
 
@@ -36,6 +38,8 @@ std::unique_ptr<MergeTreeReaderStream> makeIndexReaderStream(
     UncompressedCache * uncompressed_cache,
     MergeTreeReaderSettings settings)
 {
+    INSTRUMENT_FUNCTION()
+
     auto context = part->storage.getContext();
     auto * load_marks_threadpool = settings.read_settings.load_marks_asynchronously ? &context->getLoadMarksThreadpool() : nullptr;
 
@@ -98,6 +102,8 @@ MergeTreeIndexReader::~MergeTreeIndexReader() = default;
 
 void MergeTreeIndexReader::initStreamIfNeeded()
 {
+    INSTRUMENT_FUNCTION()
+
     if (!streams.empty())
         return;
 
@@ -131,18 +137,25 @@ void MergeTreeIndexReader::initStreamIfNeeded()
 
 void MergeTreeIndexReader::read(size_t mark, const IMergeTreeIndexCondition * condition, MergeTreeIndexGranulePtr & granule)
 {
+    INSTRUMENT_FUNCTION("MergeTreeIndexReader::read(condition)")
+
     auto load_func = [this, mark, condition](auto & res)
     {
+        INSTRUMENT_FUNCTION("MergeTreeIndexReader::read(condition)::lambda")
         initStreamIfNeeded();
 
         if (stream_mark != mark)
         {
+            INSTRUMENT_FUNCTION_UPDATE(2, "lambda_seeks")
             for (const auto & stream : stream_holders)
                 stream->seekToMark(mark);
         }
 
         if (!res)
+        {
+            INSTRUMENT_FUNCTION_UPDATE(3, "createIndexGranule")
             res = index->createIndexGranule();
+        }
 
         MergeTreeIndexDeserializationState state
         {
@@ -150,6 +163,7 @@ void MergeTreeIndexReader::read(size_t mark, const IMergeTreeIndexCondition * co
             .condition = condition
         };
 
+        INSTRUMENT_FUNCTION_UPDATE(4, "deserializeBinaryWithMultipleStreams")
         res->deserializeBinaryWithMultipleStreams(streams, state);
         stream_mark = mark + 1;
     };
@@ -177,6 +191,7 @@ void MergeTreeIndexReader::read(size_t mark, const IMergeTreeIndexCondition * co
 
 void MergeTreeIndexReader::read(size_t mark, size_t current_granule_num, MergeTreeIndexBulkGranulesPtr & granules)
 {
+    INSTRUMENT_FUNCTION("MergeTreeIndexReader::read(granule_num)")
     if (granules == nullptr)
         granules = index->createIndexBulkGranules();
 

@@ -3,6 +3,8 @@
 #include <Common/logger_useful.h>
 #include <Storages/MergeTree/PatchParts/PatchPartsUtils.h>
 
+#include <Profiler.hpp>
+
 namespace DB
 {
 
@@ -58,6 +60,8 @@ static std::optional<UInt64> getMaxPatchVersionForStep(const MergeTreeRangeReade
 
 MergeTreeReadersChain::ReadResult MergeTreeReadersChain::read(size_t max_rows, MarkRanges & ranges, std::vector<MarkRanges> & patch_ranges)
 {
+    INSTRUMENT_FUNCTION("MergeTreeReadersChain::read")
+
     if (max_rows == 0)
         throw Exception(ErrorCodes::LOGICAL_ERROR, "Expected at least 1 row to read, got 0.");
 
@@ -65,22 +69,32 @@ MergeTreeReadersChain::ReadResult MergeTreeReadersChain::read(size_t max_rows, M
         return ReadResult{log};
 
     auto & first_reader = range_readers.front();
+    INSTRUMENT_FUNCTION_UPDATE(2, "startReadingChain")
     auto read_result = first_reader.startReadingChain(max_rows, ranges);
 
     LOG_TEST(log, "First reader returned: {}, requested columns: {}", read_result.dumpInfo(), first_reader.getSampleBlock().dumpNames());
 
     if (read_result.num_rows != 0)
     {
+        INSTRUMENT_FUNCTION_UPDATE(3, "fillVirtualColumns")
         first_reader.getReader()->fillVirtualColumns(read_result.columns, read_result.num_rows);
+
+        INSTRUMENT_FUNCTION_UPDATE(4, "getReadSampleBlock")
         readPatches(first_reader.getReadSampleBlock(), patch_ranges, read_result);
+
+        INSTRUMENT_FUNCTION_UPDATE(5, "executeActionsBeforePrewhere1")
         executeActionsBeforePrewhere(read_result, read_result.columns, first_reader, {}, read_result.num_rows);
 
+        INSTRUMENT_FUNCTION_UPDATE(6, "executePrewhereActions1")
         executePrewhereActions(first_reader, read_result, {}, range_readers.size() == 1);
+
+        INSTRUMENT_FUNCTION_UPDATE(7, "addPatchVirtuals")
         addPatchVirtuals(read_result, first_reader.getSampleBlock());
     }
 
     for (size_t i = 1; i < range_readers.size(); ++i)
     {
+        INSTRUMENT_FUNCTION_UPDATE(8, "continueReadingChain")
         size_t num_read_rows = 0;
         auto columns = range_readers[i].continueReadingChain(read_result, num_read_rows);
 
@@ -90,6 +104,8 @@ MergeTreeReadersChain::ReadResult MergeTreeReadersChain::read(size_t max_rows, M
             continue;
 
         const auto & previous_header = range_readers[i - 1].getSampleBlock();
+
+        INSTRUMENT_FUNCTION_UPDATE(9, "applyPatchesAfterReader1")
         applyPatchesAfterReader(read_result, i - 1);
 
         if (!columns.empty())
@@ -99,13 +115,16 @@ MergeTreeReadersChain::ReadResult MergeTreeReadersChain::read(size_t max_rows, M
             if (num_read_rows == 0)
                 num_read_rows = read_result.num_rows;
 
+            INSTRUMENT_FUNCTION_UPDATE(10, "executeActionsBeforePrewhere2")
             executeActionsBeforePrewhere(read_result, columns, range_readers[i], previous_header, num_read_rows);
             read_result.columns.insert(read_result.columns.end(), columns.begin(), columns.end());
         }
 
+        INSTRUMENT_FUNCTION_UPDATE(11, "executePrewhereActions2")
         executePrewhereActions(range_readers[i], read_result, previous_header, i + 1 == range_readers.size());
     }
 
+    INSTRUMENT_FUNCTION_UPDATE(12, "applyPatchesAfterReader2")
     applyPatchesAfterReader(read_result, range_readers.size() - 1);
     return read_result;
 }

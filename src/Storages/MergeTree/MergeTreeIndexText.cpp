@@ -12,6 +12,8 @@
 #include <base/range.h>
 #include <fmt/ranges.h>
 
+#include <Profiler.hpp>
+
 namespace ProfileEvents
 {
     extern const Event TextIndexReadDictionaryBlocks;
@@ -204,6 +206,8 @@ static ColumnPtr deserializeTokens(ReadBuffer & istr)
 /// TODO: add cache for dictionary blocks
 static DictionaryBlock deserializeDictionaryBlock(ReadBuffer & istr)
 {
+    INSTRUMENT_FUNCTION()
+
     ProfileEvents::increment(ProfileEvents::TextIndexReadDictionaryBlocks);
 
     auto tokens_column = deserializeTokens(istr);
@@ -252,6 +256,7 @@ void MergeTreeIndexGranuleText::deserializeSparseIndex(ReadBuffer & istr)
 
 void MergeTreeIndexGranuleText::deserializeBinaryWithMultipleStreams(MergeTreeIndexInputStreams & streams, MergeTreeIndexDeserializationState & state)
 {
+    INSTRUMENT_FUNCTION()
     ProfileEventTimeIncrement<Microseconds> watch(ProfileEvents::TextIndexReadGranulesMicroseconds);
 
     auto * index_stream = streams.at(MergeTreeIndexSubstream::Type::Regular);
@@ -260,10 +265,16 @@ void MergeTreeIndexGranuleText::deserializeBinaryWithMultipleStreams(MergeTreeIn
     if (!index_stream || !dictionary_stream)
         throw Exception(ErrorCodes::LOGICAL_ERROR, "Index with type 'text' must be deserialized with 3 streams: index, dictionary, postings. One of the streams is missing");
 
+    INSTRUMENT_FUNCTION_UPDATE(2, "deserializeBloomFilter")
     deserializeBloomFilter(*index_stream->getDataBuffer());
+
+    INSTRUMENT_FUNCTION_UPDATE(3, "deserializeSparseIndex")
     deserializeSparseIndex(*index_stream->getDataBuffer());
 
+    INSTRUMENT_FUNCTION_UPDATE(4, "analyzeBloomFilter")
     analyzeBloomFilter(*state.condition);
+
+    INSTRUMENT_FUNCTION_UPDATE(5, "analyzeDictionary")
     analyzeDictionary(*dictionary_stream, state);
 }
 
@@ -302,6 +313,8 @@ void MergeTreeIndexGranuleText::analyzeBloomFilter(const IMergeTreeIndexConditio
 
 void MergeTreeIndexGranuleText::analyzeDictionary(MergeTreeIndexReaderStream & stream, MergeTreeIndexDeserializationState & state)
 {
+    INSTRUMENT_FUNCTION()
+
     if (remaining_tokens.empty())
         return;
 
@@ -309,6 +322,7 @@ void MergeTreeIndexGranuleText::analyzeDictionary(MergeTreeIndexReaderStream & s
     auto global_search_mode = condition_text.getGlobalSearchMode();
     std::map<size_t, std::vector<StringRef>> block_to_tokens;
 
+    INSTRUMENT_FUNCTION_UPDATE(2, "for1")
     for (const auto & [token, _] : remaining_tokens)
     {
         size_t idx = sparse_index.upperBound(token);
@@ -319,11 +333,17 @@ void MergeTreeIndexGranuleText::analyzeDictionary(MergeTreeIndexReaderStream & s
         block_to_tokens[idx].emplace_back(token);
     }
 
+    INSTRUMENT_FUNCTION_UPDATE(3, "getDataBuffer")
     auto * data_buffer = stream.getDataBuffer();
+
+    INSTRUMENT_FUNCTION_UPDATE(4, "getCompressedDataBuffer")
     auto * compressed_buffer = stream.getCompressedDataBuffer();
 
+    INSTRUMENT_FUNCTION_UPDATE(5, "for2")
     for (const auto & [block_idx, tokens] : block_to_tokens)
     {
+        INSTRUMENT_SCOPE(2, block_idx, "ReadBlockID")
+
         UInt64 offset_in_file = sparse_index.getOffsetInFile(block_idx);
         compressed_buffer->seek(offset_in_file, 0);
         auto dictionary_block = deserializeDictionaryBlock(*data_buffer);

@@ -63,6 +63,8 @@
 
 #include "config.h"
 
+#include <Profiler.hpp>
+
 using namespace DB;
 
 namespace
@@ -3085,6 +3087,8 @@ std::shared_ptr<ParallelReadingExtension> ReadFromMergeTree::getParallelReadingE
 
 void ReadFromMergeTree::replaceColumnsForTextSearch(const IndexReadColumns & added_columns, const Names & removed_columns)
 {
+    INSTRUMENT_FUNCTION("ReadFromMergeTree::replaceColumnsForTextSearch")
+
     if (added_columns.empty())
         return;
 

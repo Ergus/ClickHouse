@@ -25,6 +25,8 @@
 #include <utility> /// pair
 #include <vector>
 
+#include <Profiler.hpp>
+
 #ifdef SANITIZER
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wreserved-identifier"
@@ -307,6 +309,8 @@ bool inside_main = false;
 
 int main(int argc_, char ** argv_)
 {
+    INSTRUMENT_FUNCTION()
+
     inside_main = true;
     SCOPE_EXIT({ inside_main = false; });
 

@@ -29,6 +29,8 @@
 #  include <fastpfor.h>
 #endif
 
+#include <Profiler.hpp>
+
 namespace DB
 {
 
@@ -51,6 +53,7 @@ const CompressionCodecPtr & GinCompressionFactory::zstdCodec()
 #if USE_FASTPFOR
 UInt64 GinPostingListDeltaPforSerialization::serialize(WriteBuffer & buffer, const GinPostingsList & rowids)
 {
+    INSTRUMENT_FUNCTION("GinPostingListDeltaPforSerialization::serialize")
     std::vector<UInt32> deltas = encodeDeltaScalar(rowids);
 
     /// FastPFOR requires the output buffer to be "big enough", so +20% buffer is our attempt to comply with that.
@@ -83,6 +86,7 @@ UInt64 GinPostingListDeltaPforSerialization::serialize(WriteBuffer & buffer, con
 
 GinPostingsListPtr GinPostingListDeltaPforSerialization::deserialize(ReadBuffer & buffer)
 {
+    INSTRUMENT_FUNCTION("GinPostingListDeltaPforSerialization::deserialize")
     size_t num_deltas = 0;
     size_t compressed_size = 0;
     readVarUInt(num_deltas, buffer);
@@ -110,12 +114,14 @@ GinPostingsListPtr GinPostingListDeltaPforSerialization::deserialize(ReadBuffer 
 
 std::shared_ptr<FastPForLib::IntegerCODEC> GinPostingListDeltaPforSerialization::codec()
 {
+    INSTRUMENT_FUNCTION("GinPostingListDeltaPforSerialization::codec")
     static thread_local std::shared_ptr<FastPForLib::IntegerCODEC> codec = FastPForLib::simdfastpfor128_codec();
     return codec;
 }
 
 std::vector<UInt32> GinPostingListDeltaPforSerialization::encodeDeltaScalar(const GinPostingsList & rowids)
 {
+    INSTRUMENT_FUNCTION("GinPostingListDeltaPforSerialization::encodeDeltaScalar")
     const UInt64 num_rowids = rowids.cardinality();
     std::vector<UInt32> deltas(num_rowids);
     UInt32 prev = 0;
@@ -130,6 +136,7 @@ std::vector<UInt32> GinPostingListDeltaPforSerialization::encodeDeltaScalar(cons
 
 void GinPostingListDeltaPforSerialization::decodeDeltaScalar(std::vector<UInt32> & deltas)
 {
+    INSTRUMENT_FUNCTION("GinPostingListDeltaPforSerialization::decodeDeltaScalar")
     for (size_t i = 1; i < deltas.size(); ++i)
         deltas[i] += deltas[i - 1];
 }
@@ -137,6 +144,8 @@ void GinPostingListDeltaPforSerialization::decodeDeltaScalar(std::vector<UInt32>
 
 UInt64 GinPostingListRoaringZstdSerialization::serialize(WriteBuffer & buffer, const GinPostingsList & rowids)
 {
+    INSTRUMENT_FUNCTION("GinPostingListRoaringZstdSerialization::serialize")
+
     const UInt64 num_rowids = rowids.cardinality();
 
     if (num_rowids < MIN_SIZE_FOR_ROARING_ENCODING)
@@ -207,6 +216,7 @@ UInt64 GinPostingListRoaringZstdSerialization::serialize(WriteBuffer & buffer, c
 
 GinPostingsListPtr GinPostingListRoaringZstdSerialization::deserialize(ReadBuffer & buffer)
 {
+    INSTRUMENT_FUNCTION("GinPostingListRoaringZstdSerialization::deserialize")
     /// Header value maps into following states:
     /// The lowest bit indicates if values are stored as an array or Roaring bitmap
     /// In case of array container, the rest of the bits is the number of entries in the array.
@@ -267,6 +277,7 @@ void GinPostingsListBuilder::add(UInt32 row_id)
 
 UInt64 GinPostingsListBuilder::serialize(WriteBuffer & buffer)
 {
+    INSTRUMENT_FUNCTION("GinPostingsListBuilder::serialize")
     rowids.runOptimize();
 
     UInt64 written_bytes = 0;
@@ -288,6 +299,7 @@ UInt64 GinPostingsListBuilder::serialize(WriteBuffer & buffer)
 
 GinPostingsListPtr GinPostingsListBuilder::deserialize(ReadBuffer & buffer)
 {
+    INSTRUMENT_FUNCTION("GinPostingsListBuilder::deserialize")
     UInt8 serialization = 0;
     readBinary(serialization, buffer);
 
@@ -325,6 +337,8 @@ bool GinDictionaryBloomFilter::contains(std::string_view token)
 
 UInt64 GinDictionaryBloomFilter::serialize(WriteBuffer & write_buffer)
 {
+    INSTRUMENT_FUNCTION("GinDictionaryBloomFilter::serialize")
+
     UInt64 bytes_written = 0;
     const size_t filter_size_bytes = bloom_filter.getFilter().size() * sizeof(BloomFilter::UnderType);
 
@@ -348,6 +362,8 @@ UInt64 GinDictionaryBloomFilter::serialize(WriteBuffer & write_buffer)
 
 std::unique_ptr<GinDictionaryBloomFilter> GinDictionaryBloomFilter::deserialize(ReadBuffer & read_buffer)
 {
+    INSTRUMENT_FUNCTION("GinDictionaryBloomFilter::deserialize")
+
     UInt64 unique_count;
     readVarUInt(unique_count, read_buffer);
 
@@ -603,6 +619,8 @@ GinDictionaryBloomFilter initializeBloomFilter(
 
 void GinIndexStore::writeSegment()
 {
+    INSTRUMENT_FUNCTION("GinIndexStore::writeSegment")
+
     if (segment_descriptor_file_stream == nullptr)
         initFileStreams();
 
@@ -719,6 +737,8 @@ GinIndexStoreDeserializer::GinIndexStoreDeserializer(const GinIndexStorePtr & st
 
 void GinIndexStoreDeserializer::initFileStreams()
 {
+    INSTRUMENT_FUNCTION("GinIndexStoreDeserializer::initFileStreams")
+
     String segment_descriptors_file_name = store->getName() + GinIndexStore::GIN_SEGMENT_DESCRIPTOR_FILE_TYPE;
     String bloom_filter_file_name = store->getName() + GinIndexStore::GIN_BLOOM_FILTER_FILE_TYPE;
     String dict_file_name = store->getName() + GinIndexStore::GIN_DICTIONARY_FILE_TYPE;
@@ -732,6 +752,7 @@ void GinIndexStoreDeserializer::initFileStreams()
 
 void GinIndexStoreDeserializer::readSegments()
 {
+    INSTRUMENT_FUNCTION("GinIndexStoreDeserializer::readSegments")
     UInt32 num_segments = store->getNumOfSegments();
     if (num_segments == 0)
         return;
@@ -764,12 +785,15 @@ void GinIndexStoreDeserializer::readSegments()
 
 void GinIndexStoreDeserializer::prepareSegmentsForReading()
 {
+    INSTRUMENT_FUNCTION("GinIndexStoreDeserializer::prepareSegmentsForReading")
+
     for (UInt32 segment = 0; segment < store->getNumOfSegments(); ++segment)
         prepareSegmentForReading(segment);
 }
 
 void GinIndexStoreDeserializer::prepareSegmentForReading(UInt32 segment_id)
 {
+    INSTRUMENT_FUNCTION("GinIndexStoreDeserializer::prepareSegmentForReading")
     /// Check validity of segment_id
     auto it = store->segment_dictionaries.find(segment_id);
     if (it == store->segment_dictionaries.end())
@@ -808,6 +832,7 @@ void GinIndexStoreDeserializer::prepareSegmentForReading(UInt32 segment_id)
 
 void GinIndexStoreDeserializer::readSegmentFST(UInt32 segment_id, GinDictionary & dictionary)
 {
+    INSTRUMENT_FUNCTION("GinIndexStoreDeserializer::readSegmentFST")
     /// Set file pointer of dictionary file
     chassert(dict_file_stream != nullptr);
     dict_file_stream->seek(dictionary.dict_start_offset, SEEK_SET);
@@ -865,6 +890,8 @@ void GinIndexStoreDeserializer::readSegmentFST(UInt32 segment_id, GinDictionary 
 
 GinSegmentPostingsLists GinIndexStoreDeserializer::readSegmentPostingsLists(const String & token)
 {
+    INSTRUMENT_FUNCTION("GinIndexStoreDeserializer::readSegmentPostingsLists")
+
     chassert(postings_file_stream != nullptr);
 
     GinSegmentPostingsLists segment_postings_lists;
@@ -921,6 +948,7 @@ GinSegmentPostingsLists GinIndexStoreDeserializer::readSegmentPostingsLists(cons
 
 GinPostingsListsCachePtr GinIndexStoreDeserializer::createPostingsListsCacheFromTokens(const std::vector<String> & tokens)
 {
+    INSTRUMENT_FUNCTION("GinIndexStoreDeserializer::createPostingsListsCacheFromTokens")
     auto postings_lists_cache = std::make_shared<GinPostingsListsCache>();
     for (const auto & token : tokens)
     {
@@ -936,6 +964,7 @@ GinPostingsListsCachePtr GinIndexStoreDeserializer::createPostingsListsCacheFrom
 
 GinPostingsListsCachePtr GinPostingsListsCacheForStore::getPostingsLists(const String & query_string) const
 {
+    INSTRUMENT_FUNCTION("GinPostingsListsCacheForStore::getPostingsLists")
     auto it = cache.find(query_string);
     if (it == cache.end())
         return nullptr;
@@ -950,10 +979,13 @@ GinIndexStoreFactory & GinIndexStoreFactory::instance()
 
 GinIndexStorePtr GinIndexStoreFactory::get(const String & name, DataPartStoragePtr storage)
 {
+    INSTRUMENT_FUNCTION("GinIndexStoreFactory::get")
     const String & part_path = storage->getRelativePath();
     String key = name + ":" + part_path;
 
+    INSTRUMENT_FUNCTION_UPDATE(2, "wait_lock")
     std::lock_guard lock(mutex);
+    INSTRUMENT_FUNCTION_UPDATE(3, "find")
     GinIndexStores::const_iterator it = stores.find(key);
 
     if (it == stores.end())
@@ -962,8 +994,11 @@ GinIndexStorePtr GinIndexStoreFactory::get(const String & name, DataPartStorageP
         if (!store->exists())
             return nullptr;
 
+        INSTRUMENT_FUNCTION_UPDATE(4, "deserializer")
         GinIndexStoreDeserializer deserializer(store);
+        INSTRUMENT_FUNCTION_UPDATE(5, "readSegments")
         deserializer.readSegments();
+        INSTRUMENT_FUNCTION_UPDATE(6, "prepareSegmentsForReading")
         deserializer.prepareSegmentsForReading();
 
         stores[key] = store;

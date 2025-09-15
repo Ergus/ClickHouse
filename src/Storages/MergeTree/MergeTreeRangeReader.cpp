@@ -17,6 +17,8 @@
 #include <boost/qvm/vec_traits.hpp>
 #include <base/scope_guard.h>
 
+#include <Profiler.hpp>
+
 #ifdef __SSE2__
 #include <emmintrin.h>
 #endif
@@ -166,11 +168,13 @@ size_t MergeTreeRangeReader::DelayedStream::read(Columns & columns, size_t from_
 
 size_t MergeTreeRangeReader::DelayedStream::finalize(Columns & columns)
 {
+    INSTRUMENT_FUNCTION()
     /// We need to skip some rows before reading
     if (current_offset && !continue_reading)
     {
         for (size_t mark_num : collections::range(current_mark, index_granularity->getMarksCount()))
         {
+            INSTRUMENT_FUNCTION_UPDATE(2, "loop")
             size_t mark_index_granularity = index_granularity->getMarkRows(mark_num);
             if (current_offset >= mark_index_granularity)
             {
@@ -187,12 +191,14 @@ size_t MergeTreeRangeReader::DelayedStream::finalize(Columns & columns)
         /// so have to read them and throw out.
         if (current_offset)
         {
+            INSTRUMENT_FUNCTION_UPDATE(3, "current_offset")
             Columns tmp_columns;
             tmp_columns.resize(columns.size());
             readRows(tmp_columns, current_offset);
         }
     }
 
+    INSTRUMENT_FUNCTION_UPDATE(4, "final")
     size_t rows_to_read = num_delayed_rows;
     current_offset += num_delayed_rows;
     num_delayed_rows = 0;
@@ -307,6 +313,7 @@ void MergeTreeRangeReader::Stream::skip(size_t num_rows)
 
 size_t MergeTreeRangeReader::Stream::finalize(Columns & columns)
 {
+    INSTRUMENT_FUNCTION()
     size_t read_rows = stream.finalize(columns);
 
     if (stream.isFinished())
@@ -941,6 +948,8 @@ static size_t getTotalBytesInColumns(const Columns & columns)
 
 MergeTreeRangeReader::ReadResult MergeTreeRangeReader::startReadingChain(size_t max_rows, MarkRanges & ranges)
 {
+    INSTRUMENT_FUNCTION()
+
     ReadResult result(log);
     result.columns.resize(merge_tree_reader->getColumns().size());
 
@@ -993,6 +1002,7 @@ MergeTreeRangeReader::ReadResult MergeTreeRangeReader::startReadingChain(size_t 
             bool last = rows_to_read == space_left;
             UInt64 starting_offset = stream.currentPartOffset();
             UInt64 granule_offset = stream.current_mark;
+
             result.addRows(stream.read(result.columns, rows_to_read, !last));
             result.addGranule(rows_to_read, {starting_offset, granule_offset});
             space_left = (rows_to_read > space_left ? 0 : space_left - rows_to_read);
@@ -1000,6 +1010,7 @@ MergeTreeRangeReader::ReadResult MergeTreeRangeReader::startReadingChain(size_t 
     }
 
     result.addRows(stream.finalize(result.columns));
+
     size_t last_mark = stream.isFinished() ? stream.last_mark : stream.current_mark;
     if (current_mark && current_mark < last_mark)
         result.addReadRange(MarkRange{*current_mark, last_mark});
@@ -1019,6 +1030,8 @@ MergeTreeRangeReader::ReadResult MergeTreeRangeReader::startReadingChain(size_t 
 
 void MergeTreeRangeReader::fillVirtualColumns(Columns & columns, ReadResult & result)
 {
+    INSTRUMENT_FUNCTION()
+
     ColumnPtr part_offset_column;
 
     auto add_offset_column = [&](const auto & column_name)
@@ -1062,6 +1075,8 @@ void MergeTreeRangeReader::fillVirtualColumns(Columns & columns, ReadResult & re
 
 void MergeTreeRangeReader::fillDistanceColumnAndFilterForVectorSearch(Columns & columns, ReadResult & /*result*/, ColumnPtr & part_offsets_auto_column)
 {
+    INSTRUMENT_FUNCTION()
+
     /// Populate the "_distance" virtual column from the distances we got from vector index
     auto distance_column = ColumnFloat32::create(part_offsets_auto_column->size(), Float32(999999.99));
     ColumnFloat32::Container & distance_container = distance_column->getData();
@@ -1110,6 +1125,8 @@ void MergeTreeRangeReader::fillDistanceColumnAndFilterForVectorSearch(Columns & 
 
 ColumnPtr MergeTreeRangeReader::createPartOffsetColumn(ReadResult & result)
 {
+    INSTRUMENT_FUNCTION()
+
     auto column = ColumnUInt64::create(result.total_rows_per_granule);
     ColumnUInt64::Container & vec = column->getData();
 
@@ -1160,6 +1177,8 @@ ColumnPtr MergeTreeRangeReader::createPartGranuleOffsetColumn(ReadResult & resul
 
 Columns MergeTreeRangeReader::continueReadingChain(ReadResult & result, size_t & num_rows)
 {
+    INSTRUMENT_FUNCTION()
+
     Columns columns;
     num_rows = 0;
 
