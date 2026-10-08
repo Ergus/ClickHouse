@@ -14,6 +14,7 @@
 #include <DataTypes/DataTypeString.h>
 #include <Interpreters/Cluster.h>
 #include <Interpreters/DatabaseCatalog.h>
+#include <Interpreters/ExpressionActions.h>
 #include <Storages/IStorage.h>
 #include <Storages/MergeTree/MergeTreeIndexConditionText.h>
 #include <Storages/MergeTree/MergeTreeIndices.h>
@@ -181,11 +182,11 @@ QueryTreeNodePtr findProjection(const IQueryTreeNode & source, const String & na
 Resolution resolveToTableColumns(const QueryTreeNodePtr & expression, const ContextPtr & context, size_t & substitutions)
 {
     StoragePtr storage;
-    bool failed = false;
 
-    /// Returns null when nothing below `current` was substituted, so an expression over plain table
-    /// columns is resolved without copying anything. A substitution is only ever written into a copy.
-    auto substitute = [&](const QueryTreeNodePtr & current, auto & self) -> QueryTreeNodePtr
+    /// Returns `{substituted, failed}`. `substituted` is null when nothing below `current` changed, so
+    /// an expression over plain table columns is resolved without copying anything; a substitution is
+    /// only ever written into a copy.
+    auto substitute = [&](const QueryTreeNodePtr & current, auto & self) -> std::pair<QueryTreeNodePtr, bool>
     {
         const auto * column_node = current->as<ColumnNode>();
         if (!column_node)
@@ -198,9 +199,9 @@ Resolution resolveToTableColumns(const QueryTreeNodePtr & expression, const Cont
                 if (!children[i])
                     continue;
 
-                auto replacement = self(children[i], self);
+                auto [replacement, failed] = self(children[i], self);
                 if (failed)
-                    return nullptr;
+                    return {nullptr, true};
 
                 if (!replacement)
                     continue;
@@ -210,19 +211,16 @@ Resolution resolveToTableColumns(const QueryTreeNodePtr & expression, const Cont
                 substituted->getChildren()[i] = std::move(replacement);
             }
 
-            return substituted;
+            return {substituted, false};
         }
 
         const auto source = column_node->getColumnSourceOrNull();
         if (!source)
-        {
-            failed = true;
-            return nullptr;
-        }
+            return {nullptr, true};
 
         /// A lambda parameter is bound inside the expression, which is how an index names it too.
         if (source->as<LambdaArgumentsNode>())
-            return nullptr;
+            return {nullptr, false};
 
         QueryTreeNodePtr what_it_reads;
 
@@ -233,15 +231,12 @@ Resolution resolveToTableColumns(const QueryTreeNodePtr & expression, const Cont
             /// Not nodes: the two sides of a self-join, and two `remote()` calls naming one table, are
             /// distinct nodes over the same indexes.
             if (storage && storage.get() != column_storage.get())
-            {
-                failed = true;
-                return nullptr;
-            }
+                return {nullptr, true};
             storage = column_storage;
 
             /// An ALIAS column stands for an expression, and that is what the index is defined on.
             if (!column_node->hasExpression())
-                return nullptr;
+                return {nullptr, false};
 
             what_it_reads = column_node->getExpression();
         }
@@ -251,19 +246,16 @@ Resolution resolveToTableColumns(const QueryTreeNodePtr & expression, const Cont
         }
 
         if (!what_it_reads || ++substitutions > max_substitutions)
-        {
-            failed = true;
-            return nullptr;
-        }
+            return {nullptr, true};
 
-        auto replacement = self(what_it_reads, self);
+        auto [replacement, failed] = self(what_it_reads, self);
         if (failed)
-            return nullptr;
+            return {nullptr, true};
 
-        return replacement ? replacement : what_it_reads;
+        return {replacement ? replacement : what_it_reads, false};
     };
 
-    auto substituted = substitute(expression, substitute);
+    auto [substituted, failed] = substitute(expression, substitute);
     if (failed || !storage)
         return {};
 
@@ -358,11 +350,15 @@ private:
                 continue;
 
             const auto normalized_name = getNormalizedIndexColumnName(index);
+            /// The same argument types the index condition matches with, so a subcolumn inside a declared
+            /// typed path is rejected here too instead of being given a tokenizer the index cannot answer.
+            const auto json_argument_types = collectJSONIndexArgumentTypes(*index.expression);
+
             const bool describes = std::ranges::any_of(carriers, [&](const String & carrier)
             {
                 return carrier == index.column_names.front()
                     || normalized_name == std::optional<String>(carrier)
-                    || tryMatchJSONSubcolumnToIndex(carrier, index.column_names, "JSONAllValues").has_value();
+                    || tryMatchJSONSubcolumnToIndex(carrier, index.column_names, "JSONAllValues", json_argument_types).has_value();
             });
 
             if (!describes)

@@ -71,6 +71,17 @@ a higher-order indexed expression above the JOIN
 a UNION ALL between the scan and the predicate
 2
 1
+an indexed column behind a view
+1
+1
+the same view left opaque (tracked gap, prints 0)
+0
+an index preprocessor above the JOIN (tracked gap, prints 1 then 0)
+1
+0
+an index postprocessor above the JOIN (tracked gap, prints 1 then 0)
+1
+0
 a Distributed haystack, predicate on the initiator
 1
 1

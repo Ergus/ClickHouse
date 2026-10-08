@@ -352,6 +352,79 @@ SELECT count() FROM t_115999_union WHERE hasAnyTokens(tags, ['alpha beta']);
 
 DROP TABLE t_115999_union;
 
+-- A view is transparent to this pass only once the analyzer has inlined it, so `analyzer_inline_views`
+-- decides whether the indexed table is reachable from a predicate the JOIN stranded above it.
+SELECT 'an indexed column behind a view';
+CREATE TABLE t_115999_viewed
+(
+    id UInt64,
+    group_id UInt64,
+    tags Array(String),
+    INDEX idx_tags tags TYPE text(tokenizer = array)
+)
+ENGINE = MergeTree
+ORDER BY id;
+
+INSERT INTO t_115999_viewed VALUES (1, 1, ['alpha beta']), (2, 2, ['gamma delta']);
+
+CREATE VIEW v_115999_viewed AS SELECT id, group_id, tags FROM t_115999_viewed;
+
+SELECT count() FROM v_115999_viewed AS v INNER JOIN t_115999_side AS b ON v.group_id = b.group_id
+WHERE hasAnyTokens(v.tags, ['alpha beta']) OR b.category = 'nonexistent'
+SETTINGS analyzer_inline_views = 1;
+SELECT count() FROM v_115999_viewed WHERE hasAnyTokens(tags, ['alpha beta']);
+
+-- Tracked gap, prints 0 where the two above print 1: an opaque `StorageView` carries no index
+-- definitions, so the stranded predicate keeps the default tokenizer.
+SELECT 'the same view left opaque (tracked gap, prints 0)';
+SELECT count() FROM v_115999_viewed AS v INNER JOIN t_115999_side AS b ON v.group_id = b.group_id
+WHERE hasAnyTokens(v.tags, ['alpha beta']) OR b.category = 'nonexistent'
+SETTINGS analyzer_inline_views = 0;
+
+DROP VIEW v_115999_viewed;
+DROP TABLE t_115999_viewed;
+
+-- Tracked gap. Only the tokenizer is forwarded here; an index preprocessor or postprocessor reaches a
+-- predicate solely through the plan rewrite, which a JOIN keeps it away from. Each pair prints the
+-- scan-local answer and then the stranded one, which stays 0 until those transforms are forwarded too.
+SELECT 'an index preprocessor above the JOIN (tracked gap, prints 1 then 0)';
+CREATE TABLE t_115999_preprocessor
+(
+    id UInt64,
+    group_id UInt64,
+    s String,
+    INDEX idx_s s TYPE text(tokenizer = splitByNonAlpha, preprocessor = lower(s))
+)
+ENGINE = MergeTree
+ORDER BY id;
+
+INSERT INTO t_115999_preprocessor VALUES (1, 1, 'HELLO');
+
+SELECT count() FROM t_115999_preprocessor WHERE hasAnyTokens(s, ['hello']);
+SELECT count() FROM t_115999_preprocessor AS t INNER JOIN t_115999_side AS b ON t.group_id = b.group_id
+WHERE hasAnyTokens(t.s, ['hello']) OR b.category = 'nonexistent';
+
+DROP TABLE t_115999_preprocessor;
+
+SELECT 'an index postprocessor above the JOIN (tracked gap, prints 1 then 0)';
+CREATE TABLE t_115999_postprocessor
+(
+    id UInt64,
+    group_id UInt64,
+    s String,
+    INDEX idx_s s TYPE text(tokenizer = splitByNonAlpha, postprocessor = lower(s))
+)
+ENGINE = MergeTree
+ORDER BY id;
+
+INSERT INTO t_115999_postprocessor VALUES (1, 1, 'HELLO');
+
+SELECT count() FROM t_115999_postprocessor WHERE hasAnyTokens(s, ['hello']);
+SELECT count() FROM t_115999_postprocessor AS t INNER JOIN t_115999_side AS b ON t.group_id = b.group_id
+WHERE hasAnyTokens(t.s, ['hello']) OR b.category = 'nonexistent';
+
+DROP TABLE t_115999_postprocessor;
+
 -- A Distributed table carries no indexes of its own, so the initiator has to reach the shards' local
 -- table by name; otherwise a predicate it evaluates itself disagrees with the shard-local scans.
 SELECT 'a Distributed haystack, predicate on the initiator';
